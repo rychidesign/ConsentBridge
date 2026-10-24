@@ -63,7 +63,7 @@ Tags that need consent but fire on other triggers (a click, a form submission, a
 
 1. Turn on **Enable consent overview** in **Admin → Container Settings**. The tags list then shows the consent settings of every tag.
 2. Open **Preview** and load the site in the window it opens.
-3. Select the first event in the summary and open the **Consent** tab. **On-page Default** should show the signals from the snippet as `denied`.
+3. Select the first event in the summary and open the **Consent** tab. **On-page Default** should show `security_storage` as `granted` and every other signal as `denied`.
 4. Accept or reject on the banner. On the `consent_state_updated` event, **On-page Update** shows the choice.
 5. Check that tags that need consent didn't fire before the choice, and fired after it if it was granted.
 
