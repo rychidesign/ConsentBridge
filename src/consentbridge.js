@@ -20,6 +20,8 @@
 // data-cb-consent-category is granted. An element with data-cb-placeholder="<categories>"
 // stays visible until then; a data-cb-action="accept-category" button inside it grants them.
 //
+// data-cb-dev-mode="true" logs what the script does and warns about setup mistakes.
+//
 // Day attributes (data-cb-*-days) take a positive number of days; decimals work. Missing or
 // empty means the default, anything else logs a warning and uses the default too.
 (function(window, document) {
@@ -261,7 +263,11 @@
                     + '; max-age=' + Math.floor(maxAgeMs / 1000)
                     + '; SameSite=Lax'
                     + (window.location.protocol === 'https:' ? '; Secure' : '');
-            } catch (e) { this._warn('Could not save the consent cookie: ' + e.message); }
+            } catch (e) { return this._warn('Could not save the consent cookie: ' + e.message); }
+            // Browsers drop a cookie silently, e.g. one for a public suffix such as webflow.io.
+            if (!this._cookieValues().includes(JSON.stringify(record))) {
+                this._warn('The consent cookie was not saved. Check data-cb-cookie-domain and the browser\'s cookie settings.');
+            }
         }
 
         _deleteHostOnlyCookie() {
@@ -448,12 +454,47 @@
             // Webflow's script may load after this one.
             this._syncWebflow();
             this._updatePage();
+            if (this.config.devMode) this._checkSetup();
             if (Object.keys(this.consentState).length > 0) this._hideElement(this._banner());
             else this._showElement(this._banner());
             this._log('ConsentBridge setup complete.');
         }
 
         // Debug output, shown only with data-cb-dev-mode="true".
+        // Dev mode: setup mistakes that are the site's responsibility.
+        _checkSetup() {
+            const banner = this._banner();
+            if (banner && !banner.querySelector('[data-cb-action="reject-all"]')) {
+                this._warn('The banner has no data-cb-action="reject-all" button. Rejecting should be as easy as accepting.');
+            }
+            this._checkboxes().forEach(checkbox => {
+                if (checkbox.hasAttribute('checked')) {
+                    this._warn(`The "${checkbox.getAttribute('data-cb-category')}" checkbox is checked in the markup. Pre-ticked boxes are not valid consent.`);
+                }
+            });
+            if (!document.querySelector('[data-cb-action="reopen-settings"]')) {
+                this._warn('Nothing on the page has data-cb-action="reopen-settings". Visitors need a way to change their choice.');
+            }
+            ['data-cb-category', 'data-cb-consent-category', 'data-cb-placeholder'].forEach(name => {
+                document.querySelectorAll(`[${name}]`).forEach(el => {
+                    el.getAttribute(name).trim().split(/\s+/).forEach(category => {
+                        if (!this._signalsFor(category)) this._warn(`Unknown category "${category}" in ${name}.`);
+                    });
+                });
+            });
+            // Google tags read the Consent Mode defaults when they load, so the snippet must come first.
+            const defaults = window.dataLayer.findIndex(entry => entry && entry[0] === 'consent' && entry[1] === 'default');
+            const tag = window.dataLayer.findIndex(entry => entry && (entry.event === 'gtm.js' || entry[0] === 'js'));
+            if (defaults === -1) this._warn('No Consent Mode default in the dataLayer. Put the inline snippet first in <head>.');
+            else if (tag !== -1 && tag < defaults) this._warn('A Google tag loaded before the inline snippet. Move the snippet above it.');
+            const containers = Array.from(document.querySelectorAll('script[src]'))
+                .map(script => /gtm\.js\?(?:[^#]*&)?id=([^&#]+)/.exec(script.getAttribute('src')))
+                .filter(Boolean).map(match => match[1]);
+            new Set(containers.filter((id, i) => containers.indexOf(id) !== i)).forEach(id => {
+                this._warn(`GTM container ${id} is on the page more than once.`);
+            });
+        }
+
         _log(message, data) {
             if (!this.config.devMode) return;
             if (data === undefined) return console.log('[ConsentBridge] ' + message);

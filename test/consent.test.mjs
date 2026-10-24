@@ -346,6 +346,39 @@ for (const file of ['src/consentbridge.js', 'dist/consentbridge.min.js']) {
       assert.deepEqual(levels(load({ script: { 'data-cb-dev-mode': 'true' } })), ['log']);
     });
 
+    test('dev mode warns about setup mistakes', () => {
+      const dev = { 'data-cb-dev-mode': 'true' };
+      const warnings = (page) => page.problems().map((l) => l.args[0]);
+      assert.deepEqual(warnings(load({ script: dev })), [], 'the standard setup is clean');
+
+      const gtm = (id) => h('script', { async: '', src: `https://www.googletagmanager.com/gtm.js?id=${id}` });
+      const mistakes = () => [
+        h('div', { 'data-cb-banner': '' }, h('button', { 'data-cb-action': 'accept-all' })),
+        h('div', { 'data-cb-modal': 'settings' },
+          h('input', { type: 'checkbox', 'data-cb-category': 'analytics', checked: '' }),
+          h('input', { type: 'checkbox', 'data-cb-category': 'statistics' })),
+        h('div', { 'data-cb-placeholder': 'marketing video' }),
+        gtm('GTM-A'), gtm('GTM-B'), gtm('GTM-A'),
+      ];
+      // GTM's own snippet ran before the inline snippet.
+      const gtmFirst = (page) => { page.window.dataLayer = [{ 'gtm.start': 1, event: 'gtm.js' }]; };
+      const page = load({ script: dev, body: mistakes(), setup: gtmFirst });
+      const expected = [/reject-all/, /"analytics" checkbox is checked/, /reopen-settings/, /"statistics" in data-cb-category/,
+        /"video" in data-cb-placeholder/, /before the inline snippet/, /GTM-A is on the page more than once/];
+      assert.equal(warnings(page).length, expected.length, warnings(page).join('\n'));
+      expected.forEach((pattern, i) => assert.match(warnings(page)[i], pattern));
+
+      assert.match(warnings(load({ script: dev, snippet: false })).join(), /No Consent Mode default/);
+      assert.deepEqual(warnings(load({ body: mistakes(), setup: gtmFirst, snippet: false })), [], 'only in dev mode');
+    });
+
+    test('a cookie the browser drops is reported', () => {
+      // As with data-cb-cookie-domain set to a public suffix: no error, no cookie.
+      const page = load({ setup: (p) => Object.defineProperty(p.document, 'cookie', { get: () => '', set: () => {} }) });
+      page.action('accept-all');
+      assert.deepEqual(page.problems().map((l) => l.args[0]), ['[ConsentBridge] The consent cookie was not saved. Check data-cb-cookie-domain and the browser\'s cookie settings.']);
+    });
+
     test('the cookie is host-only by default and expires with the choice', () => {
       const days = (cookie) => Number(cookie['max-age']) / 86400;
       const page = load();
