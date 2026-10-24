@@ -1,0 +1,25 @@
+{
+  "name": "consentbridge",
+  "version": "0.0.0",
+  "description": "Cookie consent for Webflow with native Google Consent Mode v2, configured via data attributes.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rychidesign/ConsentBridge.git"
+  },
+  "homepage": "https://github.com/rychidesign/ConsentBridge#readme",
+  "bugs": {
+    "url": "https://github.com/rychidesign/ConsentBridge/issues"
+  },
+  "files": [
+    "dist/consentbridge.min.js",
+    "dist/consentbridge.min.js.map"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "npm run build && node scripts/check-package.mjs"
+  },
+  "devDependencies": {
+    "terser": "5.51.2"
+  }
+}
