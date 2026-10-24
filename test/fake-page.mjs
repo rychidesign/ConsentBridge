@@ -46,6 +46,27 @@ class FakeElement {
     return siblings[siblings.indexOf(this) + 1] ?? null;
   }
 
+  querySelectorAll(selector) {
+    const matches = matcher(selector);
+    const found = [];
+    const walk = (el) => { if (matches(el)) found.push(el); el.children.forEach(walk); };
+    this.children.forEach(walk);
+    return found;
+  }
+  querySelector(selector) { return this.querySelectorAll(selector)[0] ?? null; }
+
+  // Focus is tracked on the document the element belongs to; detached elements can't take it.
+  focus() {
+    let root = this;
+    while (root.parentNode) root = root.parentNode;
+    if (root instanceof FakeDocument) root.activeElement = this;
+  }
+
+  // <dialog> only.
+  show() { this.open = true; }
+  showModal() { this.open = true; this.modal = true; }
+  close() { this.open = false; this.modal = false; }
+
   closest(selector) {
     const matches = matcher(selector);
     for (let el = this; el instanceof FakeElement; el = el.parentNode) if (matches(el)) return el;
@@ -63,8 +84,14 @@ class FakeElement {
   }
 }
 
-// Supports `tag`, `[attr]` and `[attr="value"]`, combined (e.g. `script[type="text/plain"][data-x]`).
+// Supports `tag`, `[attr]` and `[attr="value"]`, combined (e.g. `script[type="text/plain"][data-x]`),
+// and comma-separated lists of those.
 function matcher(selector) {
+  const alternatives = selector.split(',').map((part) => compoundMatcher(part.trim()));
+  return (el) => alternatives.some((matches) => matches(el));
+}
+
+function compoundMatcher(selector) {
   const parts = /^([a-z]*)((?:\[[\w-]+(?:="[^"]*")?\])*)$/.exec(selector);
   if (!parts) throw new Error(`fake page: unsupported selector ${selector}`);
   const tag = parts[1].toUpperCase();
@@ -86,6 +113,7 @@ class FakeDocument {
     this.body = new FakeElement('body', {}, body);
     this.documentElement = new FakeElement('html', {}, [this.head, this.body]);
     this.documentElement.parentNode = this;
+    this.activeElement = this.body;
     this.listeners = [];
   }
 
@@ -101,7 +129,7 @@ class FakeDocument {
   getElementsByTagName(tagName) { return this.querySelectorAll(tagName.toLowerCase()); }
 
   addEventListener(type, listener) { this.listeners.push({ type, listener }); }
-  dispatch(type) { this.listeners.filter((l) => l.type === type).forEach((l) => l.listener({ type })); }
+  dispatch(type, properties = {}) { this.listeners.filter((l) => l.type === type).forEach((l) => l.listener({ type, ...properties })); }
 
   // Like a browser: a cookie is either host-only (no domain attribute) or set for a domain
   // that covers this host, and is keyed by name, domain or host, and path. max-age <= 0 deletes.
