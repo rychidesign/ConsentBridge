@@ -131,11 +131,16 @@ export function createPage({ script = {}, body = [], storage = {}, blockStorage 
 
   return {
     window, document, storage: items, logs,
-    // Runs the script like a parser-inserted tag, then fires DOMContentLoaded.
-    run(code, filename) {
-      document.currentScript = scriptTag;
+    // Runs code as a script element. `document.currentScript` is the ConsentBridge tag unless
+    // `currentScript` says otherwise (null for an inline script).
+    exec(code, filename, currentScript = scriptTag) {
+      document.currentScript = currentScript;
       vm.runInContext(code, window, { filename });
       document.currentScript = null;
+      return this;
+    },
+    // Ends parsing: readyState becomes interactive and DOMContentLoaded fires.
+    ready() {
       document.readyState = 'interactive';
       document.dispatch('DOMContentLoaded');
       return this;
