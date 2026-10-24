@@ -54,8 +54,6 @@
     // ----------------------------------------------------------------------
 
     const CONFIG = {
-        gtmId: SCRIPT_TAG ? SCRIPT_TAG.getAttribute('data-cb-gtm-id') : null,
-        ga4Id: SCRIPT_TAG ? SCRIPT_TAG.getAttribute('data-cb-ga4-id') : null,
         waitForUpdate: parseInt(SCRIPT_TAG ? SCRIPT_TAG.getAttribute('data-cb-wait-for-update') : '500', 10),
         devMode: (SCRIPT_TAG ? SCRIPT_TAG.getAttribute('data-cb-dev-mode') : 'false') === 'true',
         localStorageKey: 'consentbridge',
@@ -63,7 +61,6 @@
         cookieDomainWanted: COOKIE_DOMAIN_WANTED || null,
         cookieName: 'cb_consent',
         updateDefaultStateFromStorage: (SCRIPT_TAG ? SCRIPT_TAG.getAttribute('data-cb-default-state-updated') : 'false') === 'true',
-        forceManagePlainScripts: (SCRIPT_TAG ? SCRIPT_TAG.getAttribute('data-cb-force-manage-plain-scripts') : 'false') === 'true',
         // Time limits
         consentMaxAgeMs: MAX_AGE_MS,
         rejectionRefreshMs: REFRESH_REJECT_DAYS * MS_IN_DAY,
@@ -87,19 +84,10 @@
             this.elements = {};
             this.consentState = {};
             this.defaultStateWasUpdatedFromStorage = false;
-            if (this.config.forceManagePlainScripts) {
-                this.shouldManagePlainScripts = true;
-            } else {
-                this.shouldManagePlainScripts = !this.config.gtmId;
-            }
             this._log('ConsentBridge initialized with config:', this.config);
             if (this.config.updateDefaultStateFromStorage) {
                 this._log('Strategy: Attempting to update default consent state from localStorage.', 'warn');
             }
-            if (this.config.forceManagePlainScripts && this.config.gtmId) {
-                this._log('Strategy: Forcing management of text/plain scripts alongside GTM. Ensure no conflicts.', 'warn');
-            }
-            this._log('Should manage text/plain scripts:', this.shouldManagePlainScripts);
             if (this.config.cookieDomainWanted && !this.config.cookieDomain) {
                 this._log(`Shared consent cookie off: ${window.location.hostname} is not on ${this.config.cookieDomainWanted}. Using localStorage only.`);
             }
@@ -148,13 +136,7 @@
                 'event': 'consent_state_updated',
                 'updated_consent_state': { ...fullConsentState }
             });
-            if (this.shouldManagePlainScripts) {
-                this.config.managedConsentParams.forEach(googleParam => {
-                    if (this.consentState[googleParam] === 'granted') {
-                        this._activateScriptsForGoogleParam(googleParam);
-                    }
-                });
-            }
+            this._activateGrantedScripts();
         }
 
         saveConsentToStorage(consentState) {
@@ -308,46 +290,13 @@
             });
         }
 
-        _loadGtm() {
-            if (!this.config.gtmId) return;
-            window.dataLayer = window.dataLayer || [];
-            window.dataLayer.push({'gtm.start': new Date().getTime(), event: 'gtm.js'});
-            this._log('Pushed gtm.start and gtm.js event to dataLayer.');
-            const gtmScript = document.createElement('script');
-            gtmScript.async = true;
-            gtmScript.src = `https://www.googletagmanager.com/gtm.js?id=${this.config.gtmId}`;
-            gtmScript.onload = () => this._log('GTM script (gtm.js) loaded successfully.');
-            gtmScript.onerror = () => this._log('Error loading GTM script (gtm.js).', 'error');
-            const firstScript = document.getElementsByTagName('script')[0];
-            if (firstScript && firstScript.parentNode) firstScript.parentNode.insertBefore(gtmScript, firstScript);
-            else document.head.appendChild(gtmScript);
-        }
-
-        _loadGa4Direct() {
-            if (!this.config.ga4Id) return;
-            const ga4Script = document.createElement('script');
-            ga4Script.async = true;
-            ga4Script.src = `https://www.googletagmanager.com/gtag/js?id=${this.config.ga4Id}`;
-            ga4Script.onload = () => {
-                this._log('GA4 script (gtag.js) loaded. Configuring GA4.');
-                window.dataLayer.push({'event': 'gtag.js_loaded'});
-                gtag('js', new Date());
-                gtag('config', this.config.ga4Id);
-                this._log('GA4 configured with ID:', this.config.ga4Id);
-            };
-            ga4Script.onerror = () => this._log('Error loading GA4 script (gtag.js).', 'error');
-            const firstScript = document.getElementsByTagName('script')[0];
-            if (firstScript && firstScript.parentNode) firstScript.parentNode.insertBefore(ga4Script, firstScript);
-            else document.head.appendChild(ga4Script);
-        }
-
-        loadGoogleScripts() {
-            if (this.config.gtmId) this._loadGtm();
-            else if (this.config.ga4Id) this._loadGa4Direct();
+        _activateGrantedScripts() {
+            this.config.managedConsentParams.forEach(googleParam => {
+                if (this.consentState[googleParam] === 'granted') this._activateScriptsForGoogleParam(googleParam);
+            });
         }
 
         _activateScriptsForGoogleParam(googleParamKey) {
-            if (!this.shouldManagePlainScripts) return;
             const relevantUserAliases = [];
             for (const alias in this.config.categoryMapping) {
                 if (this.config.categoryMapping[alias].includes(googleParamKey)) relevantUserAliases.push(alias);
@@ -445,13 +394,7 @@
                     'event': 'consent_state_updated',
                     'updated_consent_state': { ...this.consentState }
                 });
-                if (this.shouldManagePlainScripts) {
-                    this.config.managedConsentParams.forEach(googleParam => {
-                        if (this.consentState[googleParam] === 'granted') {
-                            this._activateScriptsForGoogleParam(googleParam);
-                        }
-                    });
-                }
+                this._activateGrantedScripts();
             } else {
                 const storedConsent = this.loadConsentFromStorage();
                 if (storedConsent) {
@@ -460,19 +403,12 @@
                     this.consentState = storedConsent;
                     // No 'consent_state_updated' here; this path relies on the standard GTM triggers
                     if (this.elements.banner) this._hideElement(this.elements.banner);
-                    if (this.shouldManagePlainScripts) {
-                        this.config.managedConsentParams.forEach(googleParam => {
-                            if (this.consentState[googleParam] === 'granted') {
-                                this._activateScriptsForGoogleParam(googleParam);
-                            }
-                        });
-                    }
+                    this._activateGrantedScripts();
                 } else {
                     this._log('No stored consent found OR consent expired. Banner will be shown.');
                     if (this.elements.banner) this._showElement(this.elements.banner);
                 }
             }
-            this.loadGoogleScripts();
             this._log('ConsentBridge setup complete.');
         }
 

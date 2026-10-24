@@ -76,6 +76,14 @@ for (const file of ['src/consentbridge.js', 'dist/consentbridge.min.js']) {
       assert.equal(original.nextSibling.hasAttribute('data-cb-consent-category'), false);
     });
 
+    test('loads no tags of its own and activates marked scripts even with a GTM ID set', () => {
+      const page = load({ script: { 'data-cb-gtm-id': 'GTM-TEST', 'data-cb-ga4-id': 'G-TEST' } });
+      page.action('accept-all');
+      assert.deepEqual(page.activated(), CATEGORIES);
+      // Own script tag, the blocked originals and their activated copies, nothing else.
+      assert.equal(page.document.getElementsByTagName('script').length, 1 + 2 * CATEGORIES.length);
+    });
+
     test('reject all: nothing granted or activated, settings reopen unchecked', () => {
       const page = load();
       page.action('reject-all');
