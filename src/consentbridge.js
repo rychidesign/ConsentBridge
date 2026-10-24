@@ -16,6 +16,10 @@
 // Webflow Analyze and Optimize follow the analytics category through Webflow's consent API
 // (wf.allowUserTracking / wf.denyUserTracking), when the site uses them.
 //
+// Iframes with data-cb-src instead of src (YouTube, Vimeo, maps) load once their
+// data-cb-consent-category is granted. An element with data-cb-placeholder="<categories>"
+// stays visible until then; a data-cb-action="accept-category" button inside it grants them.
+//
 // Day attributes (data-cb-*-days) take a positive number of days; decimals work. Missing or
 // empty means the default, anything else logs a warning and uses the default too.
 (function(window, document) {
@@ -151,7 +155,7 @@
                 'consent_source': source,
                 'updated_consent_state': { ...fullConsentState }
             });
-            this._activateGrantedScripts();
+            this._updatePage();
             const after = this._state().categories;
             this._notify(source, Object.keys(after).filter(category => after[category] !== before[category]));
         }
@@ -283,6 +287,11 @@
                     case 'reopen-settings': this._handleOpenSettings(); break;
                     case 'save-settings': this._handleSaveSettings(); break;
                     case 'close-modal': this._closeSettings(); break;
+                    case 'accept-category': {
+                        const placeholder = button.closest('[data-cb-placeholder]');
+                        if (placeholder) this._acceptCategories(placeholder.getAttribute('data-cb-placeholder'));
+                        break;
+                    }
                 }
             });
             document.addEventListener('keydown', (event) => {
@@ -333,6 +342,44 @@
         _signalsFor(category) {
             const mapping = this.config.categoryMapping;
             return Object.prototype.hasOwnProperty.call(mapping, category) ? mapping[category] : null;
+        }
+
+        // True when every category in a space-separated list is granted.
+        _hasConsentForAll(list) {
+            return (list || '').trim().split(/\s+/).every(category => this._hasConsent(category));
+        }
+
+        // Brings blocked content in line with the current state.
+        _updatePage() {
+            this._activateGrantedScripts();
+            this._updateEmbeds();
+        }
+
+        // Blocked iframes load once all their categories are granted, and placeholders hide.
+        // When consent is withdrawn (and the page doesn't reload), both go back.
+        _updateEmbeds() {
+            document.querySelectorAll('iframe[data-cb-src]').forEach(iframe => {
+                const current = iframe.getAttribute('src');
+                if (this._hasConsentForAll(iframe.getAttribute('data-cb-consent-category'))) {
+                    const src = iframe.getAttribute('data-cb-src');
+                    if (current !== src) iframe.setAttribute('src', src);
+                } else if (current !== null && current !== 'about:blank') {
+                    iframe.setAttribute('src', 'about:blank');
+                }
+            });
+            // Placeholders are visible in the markup, so clearing display restores their layout.
+            document.querySelectorAll('[data-cb-placeholder]').forEach(placeholder => {
+                placeholder.style.display = this._hasConsentForAll(placeholder.getAttribute('data-cb-placeholder')) ? 'none' : '';
+            });
+        }
+
+        // Grants the listed categories on top of the current choice.
+        _acceptCategories(list) {
+            const consentState = { ...this.consentState };
+            (list || '').trim().split(/\s+/).forEach(category => {
+                (this._signalsFor(category) || []).forEach(param => consentState[param] = 'granted');
+            });
+            this._choose(consentState, 'ui');
         }
 
         // Activates each blocked script once all categories it lists are granted.
@@ -400,7 +447,7 @@
             this._bindEventListeners();
             // Webflow's script may load after this one.
             this._syncWebflow();
-            this._activateGrantedScripts();
+            this._updatePage();
             if (Object.keys(this.consentState).length > 0) this._hideElement(this._banner());
             else this._showElement(this._banner());
             this._log('ConsentBridge setup complete.');
