@@ -61,10 +61,11 @@ Any other element is shown by setting `style.display`. For the modal, ConsentBri
 
 - adds `role="dialog"` and `aria-modal="true"` unless the element has its own,
 - moves focus to the first `input`, `select`, `textarea`, `button`, `a[href]` or `[tabindex]` element inside it that isn't disabled,
+- keeps Tab and Shift+Tab inside it,
 - closes it on Escape,
 - returns focus to the element that opened it, if that's still visible. After a choice, the banner is hidden, so focus goes back to the page.
 
-It doesn't trap focus inside the modal. If you need that, use a `<dialog>`. Either way, give the modal an accessible name with `aria-labelledby` pointing at its heading, or `aria-label`.
+Either way, give the modal an accessible name with `aria-labelledby` pointing at its heading, or `aria-label`.
 
 When the modal opens, each checkbox shows the current choice. A Webflow custom checkbox (`.w-checkbox-input` next to the input) gets its `w--redirected-checked` class updated too.
 
@@ -74,7 +75,7 @@ When the modal opens, each checkbox shows the current choice. A Webflow custom c
 <script type="text/plain" data-cb-consent-category="analytics" src="https://example.com/analytics.js"></script>
 ```
 
-Once every listed category is granted, ConsentBridge inserts a copy of the script right after it, with the same attributes except `type` and `data-cb-consent-category`. The original stays in the page with `data-cb-activated="true"`. Inline scripts work the same way.
+Once every listed category is granted, ConsentBridge inserts a copy of the script right after it, with the same attributes, except that `type` becomes `text/javascript` and `data-cb-consent-category` is dropped. The original stays in the page with `data-cb-activated="true"`. Inline scripts work the same way.
 
 External scripts run in page order. A copy is `async` only if the original has the `async` attribute. Inline code runs as soon as it's inserted, without waiting for external scripts before it to load. Don't make blocked inline code depend on a blocked external script; most vendor snippets load their own script and are fine.
 

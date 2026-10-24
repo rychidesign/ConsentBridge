@@ -302,8 +302,29 @@
                 }
             });
             document.addEventListener('keydown', (event) => {
-                if (event.key === 'Escape' && this._settingsOpen) this._closeSettings();
+                if (!this._settingsOpen) return;
+                if (event.key === 'Escape') this._closeSettings();
+                if (event.key === 'Tab') this._keepFocusInModal(event);
             });
+        }
+
+        _modalControls() {
+            const modal = this._settingsModal();
+            if (!modal) return [];
+            return Array.from(modal.querySelectorAll('input, select, textarea, button, a[href], [tabindex]'))
+                .filter(el => !el.hasAttribute('disabled'));
+        }
+
+        // aria-modal tells assistive technology the page behind is inert, so Tab and Shift+Tab
+        // wrap around the modal's controls instead of leaving it.
+        _keepFocusInModal(event) {
+            const controls = this._modalControls();
+            if (controls.length === 0) return;
+            const index = controls.indexOf(document.activeElement);
+            const leaving = event.shiftKey ? index <= 0 : index === -1 || index === controls.length - 1;
+            if (!leaving) return;
+            event.preventDefault();
+            controls[event.shiftKey ? controls.length - 1 : 0].focus();
         }
 
         // A native <dialog> opens through its own API. Anything else gets the display from
@@ -427,8 +448,7 @@
             }
             this._showElement(modal);
             if (!native) {
-                const first = Array.from(modal.querySelectorAll('input, select, textarea, button, a[href], [tabindex]'))
-                    .find(el => !el.hasAttribute('disabled'));
+                const first = this._modalControls()[0];
                 if (first) first.focus();
                 this._settingsOpen = true;
             }
