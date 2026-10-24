@@ -84,6 +84,13 @@ test('the inline snippet stays under 2,000 characters', () => {
   assert.ok(SNIPPET.length < 2000, `${SNIPPET.length} characters`);
 });
 
+test('the README and the Webflow guide show the current inline snippet', () => {
+  const lines = (text) => text.split('\n').map((line) => line.trim()).join('\n');
+  for (const doc of ['README.md', 'docs/webflow.md']) {
+    assert.ok(lines(readFileSync(doc, 'utf8')).includes(lines(SNIPPET.trimEnd())), doc);
+  }
+});
+
 for (const file of ['src/consentbridge.js', 'dist/consentbridge.min.js']) {
   const code = readFileSync(file, 'utf8');
   const load = (options) => open(code, file, options);
