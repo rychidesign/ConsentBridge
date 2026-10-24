@@ -14,7 +14,7 @@ Cookie consent for Webflow, with Google Consent Mode v2 built in. You design the
 
 Paste this into **Site settings → Custom code → Head code** in Webflow (or the `<head>` of any site), in this order:
 
-1. **The inline snippet, first.** It sets the Consent Mode signals to `denied` before any Google tag loads.
+1. **The inline snippet, first.** It sets the Consent Mode signals to `denied` before any Google tag loads. Only `security_storage` (fraud prevention, sign-in) is `granted`, because it doesn't need consent.
 
    ```html
    <script>
@@ -27,6 +27,8 @@ Paste this into **Site settings → Custom code → Head code** in Webflow (or t
        ad_personalization: 'denied',
        analytics_storage: 'denied',
        functionality_storage: 'denied',
+       personalization_storage: 'denied',
+       security_storage: 'granted',
        wait_for_update: 500
      });
    </script>
@@ -83,7 +85,7 @@ curl -s https://cdn.jsdelivr.net/npm/consentbridge@1.0.0/dist/consentbridge.min.
 |---|---|---|
 | `analytics` | `analytics_storage` | GA4, Hotjar, Clarity |
 | `marketing` | `ad_storage`, `ad_user_data`, `ad_personalization` | Google Ads, Meta Pixel, YouTube embeds |
-| `preferences` | `functionality_storage` | Chat widgets, saved settings |
+| `preferences` | `functionality_storage`, `personalization_storage` | Chat widgets, saved settings |
 
 Google tags read these signals on their own. In GTM, other tags can require them in their consent settings or fire on the `consent_state_updated` event. See the [GTM guide](docs/google-tag-manager.md).
 

@@ -180,6 +180,8 @@ gtag('consent', 'default', {
   ad_personalization: 'denied',
   analytics_storage: 'denied',
   functionality_storage: 'denied',
+  personalization_storage: 'denied',
+  security_storage: 'granted',
   wait_for_update: 500,
   region: ['AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IE', 'IT', 'LV', 'LT',
     'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE', 'IS', 'LI', 'NO', 'GB', 'CH']
@@ -189,7 +191,9 @@ gtag('consent', 'default', {
   ad_user_data: 'granted',
   ad_personalization: 'granted',
   analytics_storage: 'granted',
-  functionality_storage: 'granted'
+  functionality_storage: 'granted',
+  personalization_storage: 'granted',
+  security_storage: 'granted'
 });
 ```
 

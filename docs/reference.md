@@ -117,9 +117,9 @@ Put `data-cb-action` on a button or link. ConsentBridge handles the click and pr
 |---|---|
 | `analytics` | `analytics_storage` |
 | `marketing` | `ad_storage`, `ad_user_data`, `ad_personalization` |
-| `preferences` | `functionality_storage` |
+| `preferences` | `functionality_storage`, `personalization_storage` |
 
-A category is granted when all of its signals are `granted`. The inline snippet sets every signal to `denied` by default. ConsentBridge sends an update with all of them whenever a stored or new choice applies.
+A category is granted when all of its signals are `granted`. The inline snippet sets these signals to `denied` by default, and `security_storage` to `granted`: it covers fraud prevention and sign-in, which don't need consent. ConsentBridge sends an update with every signal in the table whenever a stored or new choice applies, and never changes `security_storage`.
 
 There are three categories, with fixed names. Strictly necessary cookies don't need consent and have no category. If you show them in the modal, use a checkbox without `data-cb-category`, checked and disabled.
 
@@ -146,7 +146,8 @@ There are three categories, with fixed names. Strictly necessary cookies don't n
     ad_storage: 'denied',
     ad_user_data: 'denied',
     ad_personalization: 'denied',
-    functionality_storage: 'denied'
+    functionality_storage: 'denied',
+    personalization_storage: 'denied'
   }
 }
 ```
