@@ -205,24 +205,35 @@
                     case 'open-settings': this._handleOpenSettings(); break;
                     case 'reopen-settings': this._handleOpenSettings(); break;
                     case 'save-settings': this._handleSaveSettings(); break;
-                    case 'close-modal': {
-                        const targetModal = button.getAttribute('data-cb-target-modal');
-                        if (targetModal) this._handleCloseModal(targetModal);
-                        break;
-                    }
+                    case 'close-modal': this._closeSettings(); break;
                 }
+            });
+            document.addEventListener('keydown', (event) => {
+                if (event.key === 'Escape' && this._settingsOpen) this._closeSettings();
             });
         }
 
+        // A native <dialog> opens through its own API. Anything else gets the display from
+        // data-cb-display, by default flex for the modal and block for the banner.
         _showElement(element) {
-            if (element) {
-                 if (element.hasAttribute('data-cb-modal')) element.style.display = 'flex';
-                 else element.style.display = 'block';
+            if (!element) return;
+            if (element.tagName === 'DIALOG') {
+                if (element.open) return;
+                if (element.hasAttribute('data-cb-modal')) element.showModal();
+                else element.show();
+                return;
             }
+            element.style.display = element.getAttribute('data-cb-display')
+                || (element.hasAttribute('data-cb-modal') ? 'flex' : 'block');
         }
 
         _hideElement(element) {
-            if (element) element.style.display = 'none';
+            if (!element) return;
+            if (element.tagName === 'DIALOG') {
+                if (element.open) element.close();
+            } else {
+                element.style.display = 'none';
+            }
         }
 
         _updateCheckboxesUI(googleConsentState) {
@@ -274,7 +285,7 @@
             this.config.managedConsentParams.forEach(param => consentState[param] = 'granted');
             this.updateConsentAfterUInteraction(consentState);
             this._hideElement(this._banner());
-            this._hideElement(this._settingsModal());
+            this._closeSettings();
         }
 
         _handleRejectAll() {
@@ -282,12 +293,34 @@
             this.config.managedConsentParams.forEach(param => consentState[param] = 'denied');
             this.updateConsentAfterUInteraction(consentState);
             this._hideElement(this._banner());
-            this._hideElement(this._settingsModal());
+            this._closeSettings();
         }
 
+        // A native <dialog> handles focus and Esc itself. For any other element, the modal gets
+        // its ARIA role, focus moves into it, Esc closes it and focus returns to the opener.
         _handleOpenSettings() {
+            const modal = this._settingsModal();
+            if (!modal) return;
             this._updateCheckboxesUI(this.consentState);
-            this._showElement(this._settingsModal());
+            const native = modal.tagName === 'DIALOG';
+            if (!native) {
+                if (!modal.hasAttribute('role')) modal.setAttribute('role', 'dialog');
+                if (!modal.hasAttribute('aria-modal')) modal.setAttribute('aria-modal', 'true');
+                this._settingsOpener = document.activeElement;
+            }
+            this._showElement(modal);
+            if (!native) {
+                const first = modal.querySelector('input, select, textarea, button, a[href], [tabindex]');
+                if (first) first.focus();
+                this._settingsOpen = true;
+            }
+        }
+
+        _closeSettings() {
+            this._hideElement(this._settingsModal());
+            if (!this._settingsOpen) return;
+            this._settingsOpen = false;
+            if (this._settingsOpener && this._settingsOpener.focus) this._settingsOpener.focus();
         }
 
         _handleSaveSettings() {
@@ -308,13 +341,8 @@
                 }
             }
             this.updateConsentAfterUInteraction(newGoogleConsentState);
-            this._hideElement(this._settingsModal());
+            this._closeSettings();
             this._hideElement(this._banner());
-        }
-
-        _handleCloseModal(modalName) {
-            const modalToClose = document.querySelector(`[data-cb-modal="${modalName}"]`);
-            this._hideElement(modalToClose);
         }
 
         // Runs once the DOM is ready: wires up the UI and activates scripts parsed since start().

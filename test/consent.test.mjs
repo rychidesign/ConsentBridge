@@ -10,15 +10,18 @@ const DENIED = all('denied');
 const GRANTED = all('granted');
 const CATEGORIES = ['analytics', 'marketing', 'preferences'];
 
+const settingsModal = (tag = 'div', attributes = {}) => h(tag, { 'data-cb-modal': 'settings', ...attributes },
+  ...CATEGORIES.map((c) => h('input', { type: 'checkbox', 'data-cb-category': c })),
+  h('button', { 'data-cb-action': 'save-settings' }),
+  h('button', { 'data-cb-action': 'close-modal' }));
+
 // Banner, settings modal, a footer link and one blocked script per category.
-const consentUi = () => [
+const consentUi = (modal = settingsModal()) => [
   h('div', { 'data-cb-banner': '' },
     h('button', { 'data-cb-action': 'accept-all' }),
     h('button', { 'data-cb-action': 'reject-all' }),
     h('button', { 'data-cb-action': 'open-settings' })),
-  h('div', { 'data-cb-modal': 'settings' },
-    ...CATEGORIES.map((c) => h('input', { type: 'checkbox', 'data-cb-category': c })),
-    h('button', { 'data-cb-action': 'save-settings' })),
+  modal,
   h('a', { 'data-cb-action': 'reopen-settings' }),
   ...CATEGORIES.map((c) => h('script', { type: 'text/plain', 'data-cb-consent-category': c, src: `https://example.com/${c}.js` })),
 ];
@@ -157,6 +160,43 @@ for (const file of ['src/consentbridge.js', 'dist/consentbridge.min.js']) {
       assert.deepEqual(page.consent().at(-1), ['consent', 'update', DENIED]);
       // Clicks elsewhere are left alone.
       assert.equal(page.document.body.click().defaultPrevented, false);
+    });
+
+    test('data-cb-display sets how the banner and modal show', () => {
+      const ui = consentUi(settingsModal('div', { 'data-cb-display': 'block' }));
+      ui[0].setAttribute('data-cb-display', 'grid');
+      const page = load({ body: ui });
+      assert.equal(page.$('[data-cb-banner]').style.display, 'grid');
+      page.action('open-settings');
+      assert.equal(page.$('[data-cb-modal="settings"]').style.display, 'block');
+    });
+
+    test('the settings modal works with the keyboard', () => {
+      const page = load();
+      const modal = page.$('[data-cb-modal="settings"]');
+      const opener = page.$('[data-cb-action="open-settings"]');
+      opener.focus();
+      opener.click();
+      assert.deepEqual([modal.getAttribute('role'), modal.getAttribute('aria-modal')], ['dialog', 'true']);
+      assert.equal(page.document.activeElement, page.$('[data-cb-category="analytics"]'));
+
+      page.document.dispatch('keydown', { key: 'Escape' });
+      assert.equal(modal.style.display, 'none');
+      assert.equal(page.document.activeElement, opener);
+      assert.equal(page.consent().length, 1, 'closing without saving changes nothing');
+
+      opener.click();
+      page.action('close-modal');
+      assert.equal(modal.style.display, 'none');
+    });
+
+    test('a <dialog> modal opens and closes through its own API', () => {
+      const page = load({ body: consentUi(settingsModal('dialog')) });
+      const modal = page.$('[data-cb-modal="settings"]');
+      page.action('open-settings');
+      assert.deepEqual([modal.open, modal.modal, modal.style.display, modal.hasAttribute('role')], [true, true, undefined, false]);
+      page.action('save-settings');
+      assert.equal(modal.open, false);
     });
 
     test('saved settings grant only the checked categories', () => {
