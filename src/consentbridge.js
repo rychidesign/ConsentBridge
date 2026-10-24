@@ -67,14 +67,15 @@
         categoryMapping: {
             'analytics': ['analytics_storage'],
             'marketing': ['ad_storage', 'ad_user_data', 'ad_personalization'],
-            'preferences': ['functionality_storage']
+            'preferences': ['functionality_storage', 'personalization_storage']
         },
         managedConsentParams: [
             'analytics_storage',
             'ad_storage',
             'ad_user_data',
             'ad_personalization',
-            'functionality_storage'
+            'functionality_storage',
+            'personalization_storage'
         ]
     };
 

@@ -4,11 +4,13 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createPage, h } from './fake-page.mjs';
 
-const SIGNALS = ['analytics_storage', 'ad_storage', 'ad_user_data', 'ad_personalization', 'functionality_storage'];
+const SIGNALS = ['analytics_storage', 'ad_storage', 'ad_user_data', 'ad_personalization', 'functionality_storage', 'personalization_storage'];
 const all = (value) => Object.fromEntries(SIGNALS.map((s) => [s, value]));
 const DENIED = all('denied');
 const GRANTED = all('granted');
 const CATEGORIES = ['analytics', 'marketing', 'preferences'];
+// The snippet's default: security_storage is always granted, every signal the script manages denied.
+const DEFAULT = { ...DENIED, security_storage: 'granted', wait_for_update: 500 };
 
 const settingsModal = (tag = 'div', attributes = {}) => h(tag, { 'data-cb-modal': 'settings', ...attributes },
   ...CATEGORIES.map((c) => h('input', { type: 'checkbox', 'data-cb-category': c })),
@@ -98,7 +100,7 @@ for (const file of ['src/consentbridge.js', 'dist/consentbridge.min.js']) {
   describe(file, () => {
     test('first visit: only the snippet default, banner shown, nothing stored or activated', () => {
       const page = load();
-      assert.deepEqual(page.consent(), [['consent', 'default', { ...DENIED, wait_for_update: 500 }]]);
+      assert.deepEqual(page.consent(), [['consent', 'default', DEFAULT]]);
       assert.equal(page.$('[data-cb-banner]').style.display, 'block');
       assert.equal(page.cookies.size, 0);
       assert.deepEqual(page.activated(), []);
@@ -306,6 +308,12 @@ for (const file of ['src/consentbridge.js', 'dist/consentbridge.min.js']) {
       assert.deepEqual(page.consent().at(-1), ['consent', 'update', { ...DENIED, analytics_storage: 'granted' }]);
       assert.deepEqual(page.activated(), ['analytics']);
       assert.equal(page.$('[data-cb-modal="settings"]').style.display, 'none');
+
+      const preferences = load();
+      preferences.action('open-settings');
+      preferences.$('[data-cb-category="preferences"]').checked = true;
+      preferences.action('save-settings');
+      assert.deepEqual(preferences.consent().at(-1), ['consent', 'update', { ...DENIED, functionality_storage: 'granted', personalization_storage: 'granted' }]);
     });
 
     test('returning visitor: the stored choice applies without the banner', () => {
@@ -318,7 +326,7 @@ for (const file of ['src/consentbridge.js', 'dist/consentbridge.min.js']) {
 
       for (const ready of ['after', 'before']) {
         const page = load({ cookies, ready });
-        assert.deepEqual(page.consent(), [['consent', 'default', { ...DENIED, wait_for_update: 500 }], ['consent', 'update', marketing]], ready);
+        assert.deepEqual(page.consent(), [['consent', 'default', DEFAULT], ['consent', 'update', marketing]], ready);
         assert.deepEqual(page.events('consent_state_updated'), [{ event: 'consent_state_updated', consent_source: 'storage', updated_consent_state: marketing }], ready);
         assert.deepEqual(page.activated(), ['marketing'], ready);
         assert.equal(page.$('[data-cb-banner]').style.display, 'none', ready);
