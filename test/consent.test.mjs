@@ -126,6 +126,24 @@ for (const file of ['src/consentbridge.js', 'dist/consentbridge.min.js']) {
       assert.deepEqual(page.document.querySelectorAll('[data-cb-category]').map((c) => c.checked), [false, false, false]);
     });
 
+    test('actions work on pages without a banner and on elements added later', () => {
+      const first = load();
+      first.action('accept-all');
+      // A page with the settings modal and a footer link, but no banner.
+      const [, settings] = consentUi();
+      const page = load({ cookies: first.cookies, body: [settings, h('footer', {}, h('a', { 'data-cb-action': 'reopen-settings' }, h('span', {})))] });
+      // A click on an element inside the link counts too.
+      page.$('[data-cb-action="reopen-settings"]').children[0].click();
+      assert.equal(page.$('[data-cb-modal="settings"]').style.display, 'flex');
+      assert.deepEqual(page.document.querySelectorAll('[data-cb-category]').map((c) => c.checked), [true, true, true]);
+
+      const added = page.document.body.appendChild(h('button', { 'data-cb-action': 'reject-all' }));
+      assert.equal(added.click().defaultPrevented, true);
+      assert.deepEqual(page.consent().at(-1), ['consent', 'update', DENIED]);
+      // Clicks elsewhere are left alone.
+      assert.equal(page.document.body.click().defaultPrevented, false);
+    });
+
     test('saved settings grant only the checked categories', () => {
       const page = load();
       page.action('open-settings');
