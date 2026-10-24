@@ -140,8 +140,15 @@ class FakeDocument {
   querySelector(selector) { return this.querySelectorAll(selector)[0] ?? null; }
   getElementsByTagName(tagName) { return this.querySelectorAll(tagName.toLowerCase()); }
 
-  addEventListener(type, listener) { this.listeners.push({ type, listener }); }
-  dispatch(type, properties = {}) { this.listeners.filter((l) => l.type === type).forEach((l) => l.listener({ type, ...properties })); }
+  addEventListener(type, listener, options) { this.listeners.push({ type, listener, once: Boolean(options && options.once) }); }
+  dispatchEvent(event) {
+    for (const entry of this.listeners.filter((l) => l.type === event.type)) {
+      if (entry.once) this.listeners.splice(this.listeners.indexOf(entry), 1);
+      entry.listener(event);
+    }
+    return true;
+  }
+  dispatch(type, properties = {}) { return this.dispatchEvent({ type, ...properties }); }
 
   // Like a browser: a cookie is either host-only (no domain attribute) or set for a domain
   // that covers this host, and is keyed by name, domain or host, and path. max-age <= 0 deletes.
@@ -183,7 +190,10 @@ export function createPage({ script = {}, body = [], cookies = new Map(), blockC
   const console = Object.fromEntries(['log', 'info', 'warn', 'error', 'debug']
     .map((level) => [level, (...args) => logs.push({ level, args })]));
 
-  const window = { document, console, location: { hostname, protocol } };
+  class CustomEvent {
+    constructor(type, init = {}) { this.type = type; this.detail = init.detail ?? null; }
+  }
+  const window = { document, console, CustomEvent, location: { hostname, protocol } };
   window.window = window;
   vm.createContext(window);
 

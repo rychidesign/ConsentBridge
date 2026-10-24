@@ -71,16 +71,48 @@
             }
         }
 
-        // Runs as soon as the script does, whether or not the DOM is ready.
+        // Runs as soon as the script does, whether or not the DOM is ready. The API exists
+        // before the first cb:consent event, which reports the stored choice or the default.
         start() {
             window.dataLayer = window.dataLayer || [];
             window.gtag = window.gtag || function() { window.dataLayer.push(arguments); };
+            window.ConsentBridge = {
+                getState: () => this._state(),
+                hasConsent: (category) => this._hasConsent(category),
+                open: () => this._handleOpenSettings(),
+                acceptAll: () => this._choose(this._allSignals('granted'), 'api'),
+                rejectAll: () => this._choose(this._allSignals('denied'), 'api')
+            };
             const storedConsent = this.loadConsentFromStorage();
             if (storedConsent) this._applyConsent(storedConsent, 'storage');
+            else this._dispatch('default', []);
         }
 
-        // The one place a choice takes effect. source: 'storage' (stored choice) or 'ui' (made on this page).
+        _allSignals(value) {
+            const state = {};
+            this.config.managedConsentParams.forEach(param => state[param] = value);
+            return state;
+        }
+
+        // What getState() returns and every cb:consent event carries.
+        _state() {
+            const categories = {};
+            Object.keys(this.config.categoryMapping).forEach(category => categories[category] = this._hasConsent(category));
+            const signals = {};
+            this.config.managedConsentParams.forEach(param => signals[param] = this.consentState[param] || 'denied');
+            return { decided: Object.keys(this.consentState).length > 0, categories, signals };
+        }
+
+        _dispatch(source, changed) {
+            const detail = { ...this._state(), source, changed };
+            this._log('cb:consent', detail);
+            document.dispatchEvent(new CustomEvent('cb:consent', { detail }));
+        }
+
+        // The one place a choice takes effect. source: 'storage' (stored choice), 'ui' or 'api'
+        // (made on this page).
         _applyConsent(consentState, source) {
+            const before = this._state().categories;
             const fullConsentState = {};
             this.config.managedConsentParams.forEach(param => {
                 fullConsentState[param] = consentState[param] === 'granted' ? 'granted' : 'denied';
@@ -94,11 +126,16 @@
                 'updated_consent_state': { ...fullConsentState }
             });
             this._activateGrantedScripts();
+            const after = this._state().categories;
+            this._dispatch(source, Object.keys(after).filter(category => after[category] !== before[category]));
         }
 
-        updateConsentAfterUInteraction(newGoogleConsentStateFromUI) {
-            this._applyConsent(newGoogleConsentStateFromUI, 'ui');
+        // A choice made on this page: applied, saved, and the banner and settings closed.
+        _choose(consentState, source) {
+            this._applyConsent(consentState, source);
             this.saveConsentToStorage(this.consentState);
+            this._hideElement(this._banner());
+            this._closeSettings();
         }
 
         saveConsentToStorage(consentState) {
@@ -200,8 +237,8 @@
                 if (!button) return;
                 event.preventDefault();
                 switch (button.getAttribute('data-cb-action')) {
-                    case 'accept-all': this._handleAcceptAll(); break;
-                    case 'reject-all': this._handleRejectAll(); break;
+                    case 'accept-all': this._choose(this._allSignals('granted'), 'ui'); break;
+                    case 'reject-all': this._choose(this._allSignals('denied'), 'ui'); break;
                     case 'open-settings': this._handleOpenSettings(); break;
                     case 'reopen-settings': this._handleOpenSettings(); break;
                     case 'save-settings': this._handleSaveSettings(); break;
@@ -248,8 +285,14 @@
 
         // A category counts as granted when all its Consent Mode signals are.
         _hasConsent(category) {
-            const params = this.config.categoryMapping[category];
+            const params = this._signalsFor(category);
             return Boolean(params) && params.every(param => this.consentState[param] === 'granted');
+        }
+
+        // Own properties only, so a category like "constructor" is just unknown.
+        _signalsFor(category) {
+            const mapping = this.config.categoryMapping;
+            return Object.prototype.hasOwnProperty.call(mapping, category) ? mapping[category] : null;
         }
 
         // Activates each blocked script once all categories it lists are granted.
@@ -274,22 +317,6 @@
                 originalScript.dataset.cbActivated = 'true';
                 this._log(`Activated script (${categories.join(', ')}):`, newScript.src || 'inline');
             });
-        }
-
-        _handleAcceptAll() {
-            const consentState = {};
-            this.config.managedConsentParams.forEach(param => consentState[param] = 'granted');
-            this.updateConsentAfterUInteraction(consentState);
-            this._hideElement(this._banner());
-            this._closeSettings();
-        }
-
-        _handleRejectAll() {
-            const consentState = {};
-            this.config.managedConsentParams.forEach(param => consentState[param] = 'denied');
-            this.updateConsentAfterUInteraction(consentState);
-            this._hideElement(this._banner());
-            this._closeSettings();
         }
 
         // A native <dialog> handles focus and Esc itself. For any other element, the modal gets
@@ -320,25 +347,12 @@
         }
 
         _handleSaveSettings() {
-            const userChoices = {};
+            const consentState = {};
             this._checkboxes().forEach(checkbox => {
-                const userCategoryAlias = checkbox.getAttribute('data-cb-category');
-                if (userCategoryAlias) userChoices[userCategoryAlias] = checkbox.checked;
+                const params = this._signalsFor(checkbox.getAttribute('data-cb-category'));
+                if (checkbox.checked && params) params.forEach(param => consentState[param] = 'granted');
             });
-            const newGoogleConsentState = {};
-            this.config.managedConsentParams.forEach(param => newGoogleConsentState[param] = 'denied');
-            for (const alias in userChoices) {
-                if (userChoices.hasOwnProperty(alias) && this.config.categoryMapping.hasOwnProperty(alias)) {
-                    if (userChoices[alias]) {
-                        this.config.categoryMapping[alias].forEach(googleParam => {
-                            newGoogleConsentState[googleParam] = 'granted';
-                        });
-                    }
-                }
-            }
-            this.updateConsentAfterUInteraction(newGoogleConsentState);
-            this._closeSettings();
-            this._hideElement(this._banner());
+            this._choose(consentState, 'ui');
         }
 
         // Runs once the DOM is ready: wires up the UI and activates scripts parsed since start().
@@ -365,6 +379,10 @@
         }
     }
 
+    if (window.ConsentBridge) {
+        console.warn('[ConsentBridge] Loaded twice. Only the first copy runs.');
+        return;
+    }
     const consentManager = new ConsentBridge(CONFIG);
     consentManager.start();
     if (document.readyState === 'loading') {

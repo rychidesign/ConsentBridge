@@ -53,6 +53,9 @@ function jarWith(...cookies) {
 // 'after' the script (default), 'before' it, or never (false).
 function open(code, file, { snippet = true, ready = 'after', ...options } = {}) {
   const page = createPage({ body: consentUi(), ...options });
+  // Every cb:consent event, and whether window.ConsentBridge existed when it fired.
+  const cbEvents = [];
+  page.document.addEventListener('cb:consent', (event) => cbEvents.push({ detail: plain(event.detail), api: Boolean(page.window.ConsentBridge) }));
   if (snippet) page.exec(SNIPPET_CODE, 'src/snippet.html', null);
   if (ready === 'before') page.ready();
   page.exec(code, file);
@@ -60,6 +63,8 @@ function open(code, file, { snippet = true, ready = 'after', ...options } = {}) 
   const $ = (selector) => page.document.querySelector(selector);
   return Object.assign(page, {
     $,
+    cbEvents: () => cbEvents.map((e) => e.detail),
+    apiReadyForEvents: () => cbEvents.every((e) => e.api),
     action: (name) => page.click(`[data-cb-action="${name}"]`),
     consent: () => plain(Array.from(page.window.dataLayer).filter(isArguments).map((args) => Array.from(args))).filter((args) => args[0] === 'consent'),
     events: (name) => plain(page.window.dataLayer.filter((entry) => !isArguments(entry) && entry.event === name)),
@@ -107,6 +112,68 @@ for (const file of ['src/consentbridge.js', 'dist/consentbridge.min.js']) {
       assert.equal(original.nextSibling.type, 'text/javascript');
       assert.equal(original.nextSibling.src, 'https://example.com/analytics.js');
       assert.equal(original.nextSibling.hasAttribute('data-cb-consent-category'), false);
+    });
+
+    test('window.ConsentBridge and cb:consent report the state', () => {
+      const none = { analytics: false, marketing: false, preferences: false };
+      const every = { analytics: true, marketing: true, preferences: true };
+      const page = load();
+      const api = page.window.ConsentBridge;
+      // The first event reports the default, and the API exists before it fires.
+      assert.deepEqual(page.cbEvents(), [{ decided: false, categories: none, signals: DENIED, source: 'default', changed: [] }]);
+      assert.deepEqual(plain(api.getState()), { decided: false, categories: none, signals: DENIED });
+      assert.equal(api.hasConsent('analytics'), false);
+
+      page.action('accept-all');
+      assert.deepEqual(page.cbEvents().at(-1), { decided: true, categories: every, signals: GRANTED, source: 'ui', changed: CATEGORIES });
+      assert.equal(api.hasConsent('marketing'), true);
+
+      api.rejectAll();
+      assert.deepEqual(page.cbEvents().at(-1), { decided: true, categories: none, signals: DENIED, source: 'api', changed: CATEGORIES });
+      assert.equal(page.events('consent_state_updated').at(-1).consent_source, 'api');
+      assert.deepEqual(page.stored().state, DENIED);
+
+      api.open();
+      assert.equal(page.$('[data-cb-modal="settings"]').style.display, 'flex');
+      api.acceptAll();
+      assert.equal(page.$('[data-cb-modal="settings"]').style.display, 'none');
+      // The same choice again still fires, with nothing changed.
+      api.acceptAll();
+      assert.deepEqual(page.cbEvents().at(-1).changed, []);
+      // Unknown names, including inherited properties, are never granted.
+      assert.equal(api.hasConsent('constructor'), false);
+      assert.equal(api.hasConsent('unknown'), false);
+      assert.equal(page.apiReadyForEvents(), true);
+
+      // A returning visitor's first event comes from storage.
+      const next = load({ cookies: page.cookies });
+      assert.deepEqual(next.cbEvents(), [{ decided: true, categories: every, signals: GRANTED, source: 'storage', changed: CATEGORIES }]);
+    });
+
+    test('the integration pattern from the README gets the state once', () => {
+      // A listener added before the script runs, as in a site's head code.
+      const page = createPage({ body: consentUi() });
+      const seen = [];
+      const run = () => seen.push(page.window.ConsentBridge.getState().decided);
+      if (page.window.ConsentBridge) run(); else page.document.addEventListener('cb:consent', run, { once: true });
+      page.exec(code, file).ready();
+      page.click('[data-cb-action="accept-all"]');
+      assert.deepEqual(seen, [false]);
+    });
+
+    test('loading the script twice runs it once', () => {
+      const page = load();
+      page.exec(code, file);
+      assert.equal(page.cbEvents().length, 1);
+      assert.deepEqual(page.problems().map((l) => l.level), ['warn']);
+      page.action('accept-all');
+      assert.equal(page.consent().filter((c) => c[1] === 'update').length, 1);
+    });
+
+    test('a category named like an Object property is just unknown', () => {
+      const page = load({ body: [...consentUi(), h('script', { type: 'text/plain', 'data-cb-consent-category': 'constructor', src: 'https://example.com/x.js' })] });
+      page.action('accept-all');
+      assert.equal(page.$('script[data-cb-consent-category="constructor"]').hasAttribute('data-cb-activated'), false);
     });
 
     test('loads no tags of its own and activates marked scripts even with a GTM ID set', () => {
