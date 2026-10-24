@@ -65,7 +65,7 @@ Everything in the repo and on GitHub is in English: code, comments, commits, bra
 
 ## Pull requests
 
-- With squash merges, GitHub takes the PR title as the commit subject on `main` and the PR body as the commit message. So the title follows the commit format and the body ends with the footers.
+- With squash merges, GitHub takes the PR title as the commit subject on `main` and the PR body as the commit message. It then appends a `Co-authored-by:` trailer for every co-author of the branch commits. So the title follows the commit format, and the body doesn't repeat the co-author trailer.
 - Body:
   ```
   <what and why>
@@ -75,7 +75,6 @@ Everything in the repo and on GitHub is in English: code, comments, commits, bra
   Closes #<issue>
 
   BREAKING-CHANGE: <only if breaking>
-  Co-Authored-By: <agent name> <email>
   ```
   Before the first release there are no sites yet, so write `Site impact: none (unreleased)`.
 - Push first, then open the PR as a draft. Without a terminal, gh needs both title and body: `gh pr create --draft --milestone v1 --title "<title>" --body-file <file>`. When done, run `gh pr ready <n>`.
