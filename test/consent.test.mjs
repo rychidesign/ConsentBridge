@@ -491,6 +491,42 @@ for (const file of ['src/consentbridge.js', 'dist/consentbridge.min.js']) {
       assert.equal(off.reloads.length, 0);
     });
 
+    test('a blocked iframe loads after consent, and its placeholder hides', () => {
+      // A video for marketing, a map that needs marketing and preferences.
+      const embeds = () => [
+        h('iframe', { 'data-cb-src': 'https://www.youtube-nocookie.com/embed/x', 'data-cb-consent-category': 'marketing' }),
+        h('div', { 'data-cb-placeholder': 'marketing' }, h('button', { 'data-cb-action': 'accept-category' })),
+        h('iframe', { 'data-cb-src': 'https://maps.example.com/embed', 'data-cb-consent-category': 'marketing preferences' }),
+        h('div', { 'data-cb-placeholder': 'marketing preferences' }),
+      ];
+      const setup = (page) => embeds().forEach((el) => page.document.body.appendChild(el));
+      const view = (page) => [
+        ...page.document.querySelectorAll('iframe').map((el) => el.getAttribute('src')),
+        ...page.document.querySelectorAll('[data-cb-placeholder]').map((el) => el.style.display ?? ''),
+      ];
+
+      const page = load({ setup });
+      assert.deepEqual(view(page), [null, null, '', '']);
+
+      // The placeholder's button grants only its own categories and saves the choice.
+      page.$('[data-cb-placeholder="marketing"]').querySelector('[data-cb-action="accept-category"]').click();
+      assert.deepEqual(view(page), ['https://www.youtube-nocookie.com/embed/x', null, 'none', '']);
+      assert.deepEqual(page.consent().at(-1)[2], { ...DENIED, ad_storage: 'granted', ad_user_data: 'granted', ad_personalization: 'granted' });
+      assert.equal(page.stored().state.ad_storage, 'granted');
+      assert.deepEqual(page.activated(), ['marketing']);
+      assert.equal(page.$('[data-cb-banner]').style.display, 'none');
+
+      // A returning visitor's embeds load straight away.
+      const next = load({ setup, cookies: jarWith([record(GRANTED)]) });
+      assert.deepEqual(view(next), ['https://www.youtube-nocookie.com/embed/x', 'https://maps.example.com/embed', 'none', 'none']);
+
+      // Withdrawn without a reload: the iframes go blank and the placeholders come back.
+      const off = load({ setup, script: { 'data-cb-reload-on-withdrawal': 'false' } });
+      off.action('accept-all');
+      off.action('reject-all');
+      assert.deepEqual(view(off), ['about:blank', 'about:blank', '', '']);
+    });
+
     test('data-cb-revision asks again when it changes', () => {
       const asked = (revision, cookies) => {
         const page = load({ script: revision === undefined ? {} : { 'data-cb-revision': revision }, cookies });
