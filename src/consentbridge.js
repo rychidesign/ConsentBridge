@@ -98,7 +98,7 @@
         _applyConsent(consentState, source) {
             const fullConsentState = {};
             this.config.managedConsentParams.forEach(param => {
-                fullConsentState[param] = consentState[param] || 'denied';
+                fullConsentState[param] = consentState[param] === 'granted' ? 'granted' : 'denied';
             });
             this._log(`Applying consent from ${source}:`, fullConsentState);
             gtag('consent', 'update', fullConsentState);
@@ -117,67 +117,72 @@
         }
 
         saveConsentToStorage(consentState) {
-            const record = {
-                v: 1,
-                state: consentState,
-                timestamp: Date.now(),
-                // Everything denied: the banner comes back after data-cb-rejection-refresh-days
-                allDenied: Object.values(consentState).every(status => status === 'denied')
-            };
+            const record = { v: 1, state: consentState, timestamp: Date.now() };
             this._writeCookie(record);
             this._log('Consent saved.', record);
         }
 
+        // Of all consent cookies visible here, the newest valid record wins.
         loadConsentFromStorage() {
-            const value = this._readCookie();
-            if (!value) return null;
+            let newest = null;
+            this._readCookies().forEach(value => {
+                const record = this._parseRecord(value);
+                if (record && (!newest || record.timestamp > newest.timestamp)) newest = record;
+            });
+            if (!newest) return null;
+            this._log('Stored consent loaded and valid.', newest);
+            // Write again: Safari keeps cookies set from JavaScript for 7 days at most.
+            this._writeCookie(newest);
+            return newest.state;
+        }
+
+        // Visitors and other hosts under the domain can write this cookie, so it's read strictly.
+        // Unknown fields are kept: a newer 1.x on another host may have added them.
+        _parseRecord(value) {
             let record = null;
             try { record = JSON.parse(value); } catch (e) { /* invalid, handled below */ }
-            if (!record || record.v !== 1 || !record.state || !record.timestamp) {
-                this._log('Stored consent has an unknown format. Treating as no consent.', 'warn');
+            if (!record || record.v !== 1 || !record.state || typeof record.state !== 'object'
+                || typeof record.timestamp !== 'number' || !(record.timestamp <= Date.now())) {
+                this._log('Stored consent has an unknown format. Ignoring it.', 'warn');
                 return null;
             }
             if (this._remainingMs(record) <= 0) {
-                this._log('Stored consent expired. Treating as no consent.', 'warn');
+                this._log('Stored consent expired. Ignoring it.', 'warn');
                 return null;
             }
-            this._log('Stored consent loaded and valid.', record);
-            // Write again: Safari keeps cookies set from JavaScript for 7 days at most.
-            this._writeCookie(record);
-            return record.state;
+            return record;
         }
 
         // A choice is valid for data-cb-consent-max-age-days, or for the shorter
-        // data-cb-rejection-refresh-days when everything was denied.
+        // data-cb-rejection-refresh-days when nothing was granted.
         _remainingMs(record) {
-            const validMs = record.allDenied
+            const nothingGranted = !this.config.managedConsentParams.some(param => record.state[param] === 'granted');
+            const validMs = nothingGranted
                 ? Math.min(this.config.consentMaxAgeMs, this.config.rejectionRefreshMs)
                 : this.config.consentMaxAgeMs;
             return validMs - (Date.now() - record.timestamp);
         }
 
-        // With a shared cookie, a host-only one left from before is removed. If it was the
-        // only copy, its value is still returned here and written back as the shared cookie.
-        _readCookie() {
-            let values = this._cookieValues();
-            if (this.config.cookieDomain && values.length > 0) {
-                this._deleteHostOnlyCookie();
-                const shared = this._cookieValues();
-                if (shared.length > 0) values = shared;
-            }
-            return values[0] || null;
+        // With a shared cookie, a host-only one left from before is removed. The newest record
+        // of all is then written back as the shared cookie.
+        _readCookies() {
+            const values = this._cookieValues();
+            if (this.config.cookieDomain && values.length > 0) this._deleteHostOnlyCookie();
+            return values;
         }
 
         _cookieValues() {
-            try {
-                const prefix = this.config.cookieName + '=';
-                return document.cookie.split('; ')
-                    .filter(part => part.indexOf(prefix) === 0)
-                    .map(part => decodeURIComponent(part.substring(prefix.length)));
-            } catch (e) {
-                this._log('Error reading the consent cookie: ' + e.message, 'error');
-                return [];
-            }
+            const prefix = this.config.cookieName + '=';
+            let parts = [];
+            try { parts = document.cookie.split('; '); }
+            catch (e) { this._log('Error reading the consent cookie: ' + e.message, 'error'); }
+            const values = [];
+            parts.forEach(part => {
+                if (part.indexOf(prefix) !== 0) return;
+                try { values.push(decodeURIComponent(part.substring(prefix.length))); }
+                catch (e) { /* malformed, skipped */ }
+            });
+            return values;
         }
 
         _writeCookie(record) {
