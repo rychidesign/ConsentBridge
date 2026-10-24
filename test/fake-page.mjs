@@ -27,6 +27,16 @@ class FakeElement {
   hasAttribute(name) { return this.attrs.has(name); }
   removeAttribute(name) { this.attrs.delete(name); }
   get attributes() { return [...this.attrs].map(([name, value]) => ({ name, value })); }
+  get classList() {
+    const names = () => (this.getAttribute('class') ?? '').split(/\s+/).filter(Boolean);
+    return {
+      contains: (name) => names().includes(name),
+      toggle: (name, force = !names().includes(name)) => {
+        this.setAttribute('class', [...names().filter((n) => n !== name), ...(force ? [name] : [])].join(' '));
+        return force;
+      },
+    };
+  }
 
   get type() { return this.getAttribute('type') ?? ''; }
   set type(value) { this.setAttribute('type', value); }
@@ -84,7 +94,7 @@ class FakeElement {
   }
 }
 
-// Supports `tag`, `[attr]` and `[attr="value"]`, combined (e.g. `script[type="text/plain"][data-x]`),
+// Supports `tag`, `.class`, `[attr]` and `[attr="value"]`, combined (e.g. `script[type="text/plain"][data-x]`),
 // and comma-separated lists of those.
 function matcher(selector) {
   const alternatives = selector.split(',').map((part) => compoundMatcher(part.trim()));
@@ -92,11 +102,13 @@ function matcher(selector) {
 }
 
 function compoundMatcher(selector) {
-  const parts = /^([a-z]*)((?:\[[\w-]+(?:="[^"]*")?\])*)$/.exec(selector);
+  const parts = /^([a-z]*)((?:\.[\w-]+)*)((?:\[[\w-]+(?:="[^"]*")?\])*)$/.exec(selector);
   if (!parts) throw new Error(`fake page: unsupported selector ${selector}`);
   const tag = parts[1].toUpperCase();
-  const attrs = [...parts[2].matchAll(/\[([\w-]+)(?:="([^"]*)")?\]/g)];
+  const classes = parts[2].split('.').filter(Boolean);
+  const attrs = [...parts[3].matchAll(/\[([\w-]+)(?:="([^"]*)")?\]/g)];
   return (el) => (!tag || el.tagName === tag)
+    && classes.every((name) => el.classList.contains(name))
     && attrs.every(([, name, value]) => el.hasAttribute(name) && (value === undefined || el.getAttribute(name) === value));
 }
 

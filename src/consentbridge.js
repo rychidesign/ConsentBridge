@@ -236,17 +236,13 @@
             }
         }
 
-        _updateCheckboxesUI(googleConsentState) {
+        _updateCheckboxesUI() {
             this._checkboxes().forEach(checkbox => {
-                const userCategoryAlias = checkbox.getAttribute('data-cb-category');
-                if (userCategoryAlias && this.config.categoryMapping.hasOwnProperty(userCategoryAlias)) {
-                    const googleParamsForAlias = this.config.categoryMapping[userCategoryAlias];
-                    let allUnderlyingGranted = googleParamsForAlias.length > 0;
-                    googleParamsForAlias.forEach(googleParam => {
-                        if (googleConsentState[googleParam] !== 'granted') allUnderlyingGranted = false;
-                    });
-                    checkbox.checked = allUnderlyingGranted;
-                }
+                checkbox.checked = this._hasConsent(checkbox.getAttribute('data-cb-category'));
+                // A Webflow custom checkbox shows its state on a sibling element, which Webflow
+                // only updates on clicks.
+                const custom = checkbox.parentNode && checkbox.parentNode.querySelector('.w-checkbox-input');
+                if (custom) custom.classList.toggle('w--redirected-checked', checkbox.checked);
             });
         }
 
@@ -301,7 +297,7 @@
         _handleOpenSettings() {
             const modal = this._settingsModal();
             if (!modal) return;
-            this._updateCheckboxesUI(this.consentState);
+            this._updateCheckboxesUI();
             const native = modal.tagName === 'DIALOG';
             if (!native) {
                 if (!modal.hasAttribute('role')) modal.setAttribute('role', 'dialog');

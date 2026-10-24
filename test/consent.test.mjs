@@ -199,6 +199,23 @@ for (const file of ['src/consentbridge.js', 'dist/consentbridge.min.js']) {
       assert.equal(modal.open, false);
     });
 
+    test('Webflow custom checkboxes show the stored choice', () => {
+      // Webflow's markup: the real input sits next to the element that shows its state.
+      const webflowCheckbox = (category) => h('label', { class: 'w-checkbox' },
+        h('div', { class: 'w-checkbox-input w-checkbox-input--inputType-custom' }),
+        h('input', { type: 'checkbox', 'data-cb-category': category }));
+      const modal = h('div', { 'data-cb-modal': 'settings' }, ...CATEGORIES.map(webflowCheckbox), h('button', { 'data-cb-action': 'save-settings' }));
+      const page = load({ body: consentUi(modal) });
+      const shown = () => page.document.querySelectorAll('.w-checkbox-input').map((el) => el.classList.contains('w--redirected-checked'));
+
+      page.action('accept-all');
+      page.action('reopen-settings');
+      assert.deepEqual(shown(), [true, true, true]);
+      page.action('reject-all');
+      page.action('reopen-settings');
+      assert.deepEqual(shown(), [false, false, false]);
+    });
+
     test('saved settings grant only the checked categories', () => {
       const page = load();
       page.action('open-settings');
