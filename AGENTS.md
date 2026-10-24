@@ -131,7 +131,8 @@ Release only when the maintainer says so in chat, in this order:
 Also:
 
 - Before 1.0.0, release only prereleases (`1.0.0-beta.N`, tag `v1.0.0-beta.N`) under the npm dist-tag `next`. `@1` doesn't match prereleases, so they can't reach a site by accident.
-- Publishing runs only in `.github/workflows/publish.yml`, in the GitHub environment `npm`, which npm trusts as the publisher of `consentbridge`. No long-lived npm tokens exist.
+- Publishing runs only in `.github/workflows/publish.yml`, in the GitHub environment `npm`, which accepts deployments from `v*` tags only. npm trusts that workflow and environment as the publisher of `consentbridge`. No long-lived npm tokens exist.
+- Anyone who can push a `v*` tag can publish, even with a modified workflow on the tagged commit. Nothing technical stops that, so pushing a tag happens only as step 3 of a confirmed release.
 - `npm deprecate` can't go through the workflow and needs a short npm session:
   1. Ask the maintainer to run `! npm login --auth-type=web` themselves. The login link expires within minutes, so they have to open it right away.
   2. Run the command in a pseudo-terminal, so npm prints the 2FA link instead of hiding it: `script -q -e -c "<command>" /dev/null`. Send the maintainer that link.
