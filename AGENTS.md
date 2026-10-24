@@ -77,6 +77,7 @@ Everything in the repo and on GitHub is in English: code, comments, commits, bra
   BREAKING-CHANGE: <only if breaking>
   ```
   Before the first release there are no sites yet, so write `Site impact: none (unreleased)`.
+- Before pushing, run `npm ci --ignore-scripts && npm test`. CI runs the same. Always install with `--ignore-scripts`.
 - Push first, then open the PR as a draft. Without a terminal, gh needs both title and body: `gh pr create --draft --milestone v1 --title "<title>" --body-file <file>`. When done, run `gh pr ready <n>`.
 
 ### Merging
@@ -130,8 +131,11 @@ Release only when the maintainer says so in chat, in this order:
 Also:
 
 - Before 1.0.0, release only prereleases (`1.0.0-beta.N`, tag `v1.0.0-beta.N`) under the npm dist-tag `next`. `@1` doesn't match prereleases, so they can't reach a site by accident.
-- No long-lived npm tokens exist. Two operations need a short npm session instead: the very first publish (trusted publishing only works for a package that already exists) and `npm deprecate`. Run `npm login --auth-type=web`, send the maintainer the login URL so they can approve it with their npm 2FA, do the one operation, and run `npm logout` right after. After the first publish, the maintainer adds the trusted publisher on npmjs.com.
-- The publish workflow doesn't exist yet. Until it does, the only possible release is the one-time first publish described above.
+- Publishing runs only in `.github/workflows/publish.yml`, in the GitHub environment `npm`, which npm trusts as the publisher of `consentbridge`. No long-lived npm tokens exist.
+- `npm deprecate` can't go through the workflow and needs a short npm session:
+  1. Ask the maintainer to run `! npm login --auth-type=web` themselves. The login link expires within minutes, so they have to open it right away.
+  2. Run the command in a pseudo-terminal, so npm prints the 2FA link instead of hiding it: `script -q -e -c "<command>" /dev/null`. Send the maintainer that link.
+  3. Run `npm logout` right after.
 
 Rollback of a bad version, after the maintainer's OK, which covers these steps:
 
