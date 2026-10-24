@@ -1,5 +1,6 @@
 // ConsentBridge: cookie consent for Webflow with Google Consent Mode v2.
-// Configuration is read from data-cb-* attributes on this script tag.
+// Configuration is read from data-cb-* attributes on this script tag. The Consent Mode
+// defaults come from the inline snippet (src/snippet.html), which sites put first in <head>.
 //
 // Optional data-cb-cookie-domain="example.com" shares the consent choice across subdomains.
 //   The choice is stored in localStorage and in a cookie set for that domain and all its
@@ -54,13 +55,11 @@
     // ----------------------------------------------------------------------
 
     const CONFIG = {
-        waitForUpdate: parseInt(SCRIPT_TAG ? SCRIPT_TAG.getAttribute('data-cb-wait-for-update') : '500', 10),
         devMode: (SCRIPT_TAG ? SCRIPT_TAG.getAttribute('data-cb-dev-mode') : 'false') === 'true',
         localStorageKey: 'consentbridge',
         cookieDomain: COOKIE_DOMAIN,
         cookieDomainWanted: COOKIE_DOMAIN_WANTED || null,
         cookieName: 'cb_consent',
-        updateDefaultStateFromStorage: (SCRIPT_TAG ? SCRIPT_TAG.getAttribute('data-cb-default-state-updated') : 'false') === 'true',
         // Time limits
         consentMaxAgeMs: MAX_AGE_MS,
         rejectionRefreshMs: REFRESH_REJECT_DAYS * MS_IN_DAY,
@@ -83,60 +82,40 @@
             this.config = config;
             this.elements = {};
             this.consentState = {};
-            this.defaultStateWasUpdatedFromStorage = false;
             this._log('ConsentBridge initialized with config:', this.config);
-            if (this.config.updateDefaultStateFromStorage) {
-                this._log('Strategy: Attempting to update default consent state from localStorage.', 'warn');
-            }
             if (this.config.cookieDomainWanted && !this.config.cookieDomain) {
                 this._log(`Shared consent cookie off: ${window.location.hostname} is not on ${this.config.cookieDomainWanted}. Using localStorage only.`);
             }
         }
 
-        _getInitialConsentStateForDefault() {
-            const initialConsent = {};
-            if (this.config.updateDefaultStateFromStorage) {
-                const storedConsent = this.loadConsentFromStorage();
-                if (storedConsent) {
-                    this.config.managedConsentParams.forEach(param => {
-                        initialConsent[param] = storedConsent[param] || 'denied';
-                    });
-                    this.consentState = { ...initialConsent };
-                    this.defaultStateWasUpdatedFromStorage = true;
-                    return initialConsent;
-                }
-            }
-            this.config.managedConsentParams.forEach(param => {
-                initialConsent[param] = 'denied';
-            });
-            return initialConsent;
-        }
-
-        initDefaultConsent() {
+        // Runs as soon as the script does, whether or not the DOM is ready.
+        start() {
             window.dataLayer = window.dataLayer || [];
-            window.gtag = window.gtag || function() { dataLayer.push(arguments); };
-            const defaultValues = this._getInitialConsentStateForDefault();
-            const consentDefaultCommand = { ...defaultValues };
-            consentDefaultCommand.wait_for_update = this.defaultStateWasUpdatedFromStorage ? 0 : this.config.waitForUpdate;
-            this._log('Setting default consent:', consentDefaultCommand);
-            gtag('consent', 'default', consentDefaultCommand);
+            window.gtag = window.gtag || function() { window.dataLayer.push(arguments); };
+            const storedConsent = this.loadConsentFromStorage();
+            if (storedConsent) this._applyConsent(storedConsent, 'storage');
         }
 
-        updateConsentAfterUInteraction(newGoogleConsentStateFromUI) {
+        // The one place a choice takes effect. source: 'storage' (stored choice) or 'ui' (made on this page).
+        _applyConsent(consentState, source) {
             const fullConsentState = {};
             this.config.managedConsentParams.forEach(param => {
-                fullConsentState[param] = newGoogleConsentStateFromUI[param] || 'denied';
+                fullConsentState[param] = consentState[param] || 'denied';
             });
-            this._log('Updating consent via gtag("consent", "update") AFTER UI interaction:', fullConsentState);
+            this._log(`Applying consent from ${source}:`, fullConsentState);
             gtag('consent', 'update', fullConsentState);
             this.consentState = fullConsentState;
-            this.saveConsentToStorage(fullConsentState);
-            this._log('Pushing consent_state_updated event to dataLayer (due to UI interaction).');
             window.dataLayer.push({
                 'event': 'consent_state_updated',
+                'consent_source': source,
                 'updated_consent_state': { ...fullConsentState }
             });
             this._activateGrantedScripts();
+        }
+
+        updateConsentAfterUInteraction(newGoogleConsentStateFromUI) {
+            this._applyConsent(newGoogleConsentStateFromUI, 'ui');
+            this.saveConsentToStorage(this.consentState);
         }
 
         saveConsentToStorage(consentState) {
@@ -339,15 +318,7 @@
         }
 
         _handleOpenSettings() {
-            let consentForUI = this.consentState && Object.keys(this.consentState).length > 0
-                ? this.consentState : this.loadConsentFromStorage();
-            if (!consentForUI || Object.keys(consentForUI).length === 0) {
-                consentForUI = {};
-                this.config.managedConsentParams.forEach(param => consentForUI[param] = 'denied');
-            }
-            const displayConsent = {};
-            this.config.managedConsentParams.forEach(param => displayConsent[param] = consentForUI[param] || 'denied');
-            this._updateCheckboxesUI(displayConsent);
+            this._updateCheckboxesUI(this.consentState);
             this._showElement(this.elements.settingsModal);
         }
 
@@ -380,35 +351,14 @@
             this._hideElement(modalToClose);
         }
 
+        // Runs once the DOM is ready: wires up the UI and activates scripts parsed since start().
         init() {
-            this.initDefaultConsent();
             this._queryElements();
             if (this.elements.banner) this._bindEventListeners();
             else this._log('Banner element [data-cb-banner] not found. Consent UI will not be displayed.', 'warn');
-
-            if (this.defaultStateWasUpdatedFromStorage) {
-                this._log('Default consent was updated from storage. Hiding banner and activating scripts.');
-                if (this.elements.banner) this._hideElement(this.elements.banner);
-                // Push consent_state_updated here so GTM can react to the state already granted in the default
-                window.dataLayer.push({
-                    'event': 'consent_state_updated',
-                    'updated_consent_state': { ...this.consentState }
-                });
-                this._activateGrantedScripts();
-            } else {
-                const storedConsent = this.loadConsentFromStorage();
-                if (storedConsent) {
-                    this._log('Stored consent found (standard path). Applying consent state.');
-                    gtag('consent', 'update', storedConsent);
-                    this.consentState = storedConsent;
-                    // No 'consent_state_updated' here; this path relies on the standard GTM triggers
-                    if (this.elements.banner) this._hideElement(this.elements.banner);
-                    this._activateGrantedScripts();
-                } else {
-                    this._log('No stored consent found OR consent expired. Banner will be shown.');
-                    if (this.elements.banner) this._showElement(this.elements.banner);
-                }
-            }
+            this._activateGrantedScripts();
+            if (Object.keys(this.consentState).length > 0) this._hideElement(this.elements.banner);
+            else this._showElement(this.elements.banner);
             this._log('ConsentBridge setup complete.');
         }
 
@@ -430,6 +380,7 @@
         return;
     }
     const consentManager = new ConsentBridge(CONFIG);
+    consentManager.start();
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => consentManager.init());
     } else {
