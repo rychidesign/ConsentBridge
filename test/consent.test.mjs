@@ -67,7 +67,7 @@ function open(code, file, { snippet = true, ready = 'after', ...options } = {}) 
       assert.equal(more.length, 0, 'more than one consent cookie');
       return JSON.parse(decodeURIComponent(cookie.value));
     },
-    errors: () => page.logs.filter((l) => l.level === 'error'),
+    problems: () => page.logs.filter((l) => l.level === 'warn' || l.level === 'error'),
   });
 }
 
@@ -86,7 +86,7 @@ for (const file of ['src/consentbridge.js', 'dist/consentbridge.min.js']) {
       assert.equal(page.$('[data-cb-banner]').style.display, 'block');
       assert.equal(page.cookies.size, 0);
       assert.deepEqual(page.activated(), []);
-      assert.deepEqual(page.errors(), []);
+      assert.deepEqual(page.problems(), []);
     });
 
     test('accept all: everything granted, saved and activated', () => {
@@ -150,7 +150,7 @@ for (const file of ['src/consentbridge.js', 'dist/consentbridge.min.js']) {
         assert.deepEqual(page.events('consent_state_updated'), [{ event: 'consent_state_updated', consent_source: 'storage', updated_consent_state: marketing }], ready);
         assert.deepEqual(page.activated(), ['marketing'], ready);
         assert.equal(page.$('[data-cb-banner]').style.display, 'none', ready);
-        assert.deepEqual(page.errors(), [], ready);
+        assert.deepEqual(page.problems(), [], ready);
       }
 
       // The choice applies as soon as the script runs; only the banner waits for the DOM.
@@ -175,6 +175,17 @@ for (const file of ['src/consentbridge.js', 'dist/consentbridge.min.js']) {
       page.action('accept-all');
       assert.deepEqual(page.consent().at(-1), ['consent', 'update', GRANTED]);
       assert.deepEqual(page.activated(), CATEGORIES);
+    });
+
+    test('warnings reach the console without dev mode, debug output only with it', () => {
+      const levels = (page) => [...new Set(page.logs.map((l) => l.level))];
+      assert.deepEqual(levels(load()), []);
+      assert.deepEqual(levels(load({ cookies: jarWith(['not json{']) })), ['warn']);
+      const blocked = load({ blockCookies: true });
+      blocked.action('accept-all');
+      assert.deepEqual(levels(blocked), ['warn']);
+      assert.equal(blocked.logs.length, 2, 'one warning for the read, one for the write');
+      assert.deepEqual(levels(load({ script: { 'data-cb-dev-mode': 'true' } })), ['log']);
     });
 
     test('the cookie is host-only by default and expires with the choice', () => {
