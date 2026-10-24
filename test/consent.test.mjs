@@ -32,15 +32,16 @@ const SNIPPET = readFileSync('src/snippet.html', 'utf8');
 const SNIPPET_CODE = /^<script>\n([\s\S]*)<\/script>\n$/.exec(SNIPPET)[1];
 
 const DAY = 24 * 60 * 60 * 1000;
-const record = (state, ageDays = 1) => ({ v: 1, state, timestamp: Date.now() - ageDays * DAY, allDenied: Object.values(state).every((s) => s === 'denied') });
+const record = (state, ageDays = 1) => ({ v: 1, state, timestamp: Date.now() - ageDays * DAY });
 
-// A cookie jar holding consent cookies set on www.example.com. Each entry is a record (or a raw
-// string) plus optional extra cookie attributes.
+// A cookie jar holding consent cookies set on www.example.com. Each entry is a record, a string,
+// or { raw } for a value stored without encoding, plus optional extra cookie attributes.
 function jarWith(...cookies) {
   const jar = new Map();
   const { document } = createPage({ cookies: jar });
   for (const [value, attributes = ''] of cookies) {
-    document.cookie = `consentbridge=${encodeURIComponent(typeof value === 'string' ? value : JSON.stringify(value))}; path=/${attributes}`;
+    const encoded = value.raw ?? encodeURIComponent(typeof value === 'string' ? value : JSON.stringify(value));
+    document.cookie = `consentbridge=${encoded}; path=/${attributes}`;
   }
   return jar;
 }
@@ -117,7 +118,7 @@ for (const file of ['src/consentbridge.js', 'dist/consentbridge.min.js']) {
       const page = load();
       page.action('reject-all');
       assert.deepEqual(page.consent().at(-1), ['consent', 'update', DENIED]);
-      assert.equal(page.stored().allDenied, true);
+      assert.deepEqual(page.stored().state, DENIED);
       assert.deepEqual(page.activated(), []);
 
       page.action('reopen-settings');
@@ -219,10 +220,13 @@ for (const file of ['src/consentbridge.js', 'dist/consentbridge.min.js']) {
       assert.deepEqual(moved.consent().at(-1), ['consent', 'update', GRANTED]);
       assert.deepEqual(moved.consentCookies().map((c) => c.domain), ['example.com']);
 
-      // Both: the shared cookie applies and the host-only one goes.
-      const both = load({ script, cookies: jarWith([record(GRANTED)], [record(DENIED), '; domain=example.com']) });
-      assert.deepEqual(both.consent().at(-1), ['consent', 'update', DENIED]);
-      assert.deepEqual(both.consentCookies().map((c) => c.domain), ['example.com']);
+      // Both: the newer choice applies, ends up in the shared cookie, and the host-only one goes.
+      for (const [hostOnly, shared] of [[record(GRANTED, 2), record(DENIED, 1)], [record(DENIED, 1), record(GRANTED, 2)]]) {
+        const both = load({ script, cookies: jarWith([hostOnly], [shared, '; domain=example.com']) });
+        assert.deepEqual(both.consent().at(-1), ['consent', 'update', DENIED]);
+        assert.deepEqual(both.consentCookies().map((c) => c.domain), ['example.com']);
+        assert.deepEqual(both.stored().state, DENIED);
+      }
     });
 
     test('a stored choice applies only in the known format and while valid', () => {
@@ -239,6 +243,39 @@ for (const file of ['src/consentbridge.js', 'dist/consentbridge.min.js']) {
       assert.equal(applies({ state: GRANTED, timestamp: Date.now() }), false, 'no schema version');
       assert.equal(applies({ ...record(GRANTED), v: 2 }), false, 'other schema version');
       assert.equal(applies('not json{'), false, 'not JSON');
+    });
+
+    test('a stored record is read strictly', () => {
+      const update = (...cookies) => load({ cookies: jarWith(...cookies) }).consent()[1]?.[2] ?? null;
+      // Only the exact value 'granted' counts, and only for known signals.
+      const loose = { analytics_storage: true, ad_storage: 'GRANTED', ad_user_data: 1, ad_personalization: 'yes', functionality_storage: 'granted', unknown_storage: 'granted' };
+      assert.deepEqual(update([record(loose)]), { ...DENIED, functionality_storage: 'granted' });
+      // The timestamp must be a number from the past, and the state an object.
+      for (const timestamp of [String(Date.now() - DAY), Date.now() + DAY, null]) {
+        assert.equal(update([{ v: 1, state: GRANTED, timestamp }]), null, String(timestamp));
+      }
+      assert.equal(update([{ v: 1, state: 'granted', timestamp: Date.now() }]), null);
+      // Whether nothing was granted comes from the state, not from a stored flag.
+      assert.equal(update([{ ...record(DENIED, 183), allDenied: false }]), null);
+      // Fields this version doesn't know survive the rewrite.
+      const kept = load({ cookies: jarWith([{ ...record(GRANTED), future: 'field' }]) });
+      assert.equal(kept.stored().future, 'field');
+    });
+
+    test('of several consent cookies, the newest valid one wins', () => {
+      const older = record(GRANTED, 2);
+      const newer = record(DENIED, 1);
+      for (const cookies of [
+        [[older, '; domain=example.com'], [newer, '; domain=www.example.com']],
+        [[newer, '; domain=www.example.com'], [older, '; domain=example.com']],
+      ]) {
+        assert.deepEqual(load({ cookies: jarWith(...cookies) }).consent().at(-1), ['consent', 'update', DENIED]);
+      }
+      // A malformed or invalid copy doesn't hide a valid one.
+      for (const bad of [{ raw: '%E0%A4%A' }, 'not json{', record(GRANTED, 400)]) {
+        const page = load({ cookies: jarWith([bad, '; domain=example.com'], [newer]) });
+        assert.deepEqual(page.consent().at(-1), ['consent', 'update', DENIED]);
+      }
     });
   });
 }
