@@ -143,11 +143,11 @@
             try { record = JSON.parse(value); } catch (e) { /* invalid, handled below */ }
             if (!record || record.v !== 1 || !record.state || typeof record.state !== 'object'
                 || typeof record.timestamp !== 'number' || !(record.timestamp <= Date.now())) {
-                this._log('Stored consent has an unknown format. Ignoring it.', 'warn');
+                this._warn('Stored consent has an unknown format. Ignoring it.');
                 return null;
             }
             if (this._remainingMs(record) <= 0) {
-                this._log('Stored consent expired. Ignoring it.', 'warn');
+                this._log('Stored consent expired. Ignoring it.');
                 return null;
             }
             return record;
@@ -175,7 +175,7 @@
             const prefix = this.config.cookieName + '=';
             let parts = [];
             try { parts = document.cookie.split('; '); }
-            catch (e) { this._log('Error reading the consent cookie: ' + e.message, 'error'); }
+            catch (e) { this._warn('Could not read the consent cookie: ' + e.message); }
             const values = [];
             parts.forEach(part => {
                 if (part.indexOf(prefix) !== 0) return;
@@ -195,12 +195,12 @@
                     + '; max-age=' + Math.floor(maxAgeMs / 1000)
                     + '; SameSite=Lax'
                     + (window.location.protocol === 'https:' ? '; Secure' : '');
-            } catch (e) { this._log('Error saving the consent cookie: ' + e.message, 'error'); }
+            } catch (e) { this._warn('Could not save the consent cookie: ' + e.message); }
         }
 
         _deleteHostOnlyCookie() {
             try { document.cookie = this.config.cookieName + '=; path=/; max-age=0'; }
-            catch (e) { this._log('Error removing the host-only consent cookie: ' + e.message, 'error'); }
+            catch (e) { this._warn('Could not remove the host-only consent cookie: ' + e.message); }
         }
 
         _queryElements() {
@@ -344,23 +344,25 @@
         init() {
             this._queryElements();
             if (this.elements.banner) this._bindEventListeners();
-            else this._log('Banner element [data-cb-banner] not found. Consent UI will not be displayed.', 'warn');
+            else this._log('No [data-cb-banner] on this page.');
             this._activateGrantedScripts();
             if (Object.keys(this.consentState).length > 0) this._hideElement(this.elements.banner);
             else this._showElement(this.elements.banner);
             this._log('ConsentBridge setup complete.');
         }
 
-        _log(message, data = '', type = 'info') {
-            if (this.config.devMode || type === 'error' || type === 'warn') {
-                const logFn = console[type] || console.log;
-                let dataToLog = data;
-                if (data && typeof data === 'object') {
-                    try { dataToLog = JSON.parse(JSON.stringify(data)); } catch (e) { /* fallback */ }
-                }
-                if (data !== '') { logFn(`[ConsentBridge] ${message}`, dataToLog); }
-                else { logFn(`[ConsentBridge] ${message}`); }
-            }
+        // Debug output, shown only with data-cb-dev-mode="true".
+        _log(message, data) {
+            if (!this.config.devMode) return;
+            if (data === undefined) return console.log('[ConsentBridge] ' + message);
+            // A snapshot, so the console doesn't show later changes to the object.
+            try { data = JSON.parse(JSON.stringify(data)); } catch (e) { /* log as is */ }
+            console.log('[ConsentBridge] ' + message, data);
+        }
+
+        // Always shown.
+        _warn(message) {
+            console.warn('[ConsentBridge] ' + message);
         }
     }
 
