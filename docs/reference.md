@@ -60,7 +60,7 @@ A native `<dialog>` opens and closes through its own API: the modal with `showMo
 Any other element is shown by setting `style.display`. For the modal, ConsentBridge also:
 
 - adds `role="dialog"` and `aria-modal="true"` unless the element has its own,
-- moves focus to the first `input`, `select`, `textarea`, `button`, `a[href]` or `[tabindex]` element inside it,
+- moves focus to the first `input`, `select`, `textarea`, `button`, `a[href]` or `[tabindex]` element inside it that isn't disabled,
 - closes it on Escape,
 - returns focus to the element that opened it, if that's still visible. After a choice, the banner is hidden, so focus goes back to the page.
 
@@ -121,7 +121,7 @@ Put `data-cb-action` on a button or link. ConsentBridge handles the click and pr
 
 A category is granted when all of its signals are `granted`. The inline snippet sets every signal to `denied` by default. ConsentBridge sends an update with all of them whenever a stored or new choice applies.
 
-There are three categories, with fixed names. Strictly necessary cookies don't need consent and have no category. If you show them in the modal, use a checkbox without `data-cb-category`, checked and disabled, and don't make it the modal's first control: focus can't move to a disabled element.
+There are three categories, with fixed names. Strictly necessary cookies don't need consent and have no category. If you show them in the modal, use a checkbox without `data-cb-category`, checked and disabled.
 
 ## JavaScript API
 

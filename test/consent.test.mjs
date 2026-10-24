@@ -263,6 +263,13 @@ for (const file of ['src/consentbridge.js', 'dist/consentbridge.min.js']) {
       opener.click();
       page.action('close-modal');
       assert.equal(modal.style.display, 'none');
+
+      // A disabled "necessary" checkbox first in the modal can't take focus, so it's skipped.
+      const modalWithNecessary = settingsModal();
+      modalWithNecessary.insertBefore(h('input', { type: 'checkbox', checked: '', disabled: '' }), modalWithNecessary.children[0]);
+      const withNecessary = load({ body: consentUi(modalWithNecessary) });
+      withNecessary.action('open-settings');
+      assert.equal(withNecessary.document.activeElement, withNecessary.$('[data-cb-category="analytics"]'));
     });
 
     test('a <dialog> modal opens and closes through its own API', () => {

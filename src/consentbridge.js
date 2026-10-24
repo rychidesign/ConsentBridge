@@ -426,7 +426,8 @@
             }
             this._showElement(modal);
             if (!native) {
-                const first = modal.querySelector('input, select, textarea, button, a[href], [tabindex]');
+                const first = Array.from(modal.querySelectorAll('input, select, textarea, button, a[href], [tabindex]'))
+                    .find(el => !el.hasAttribute('disabled'));
                 if (first) first.focus();
                 this._settingsOpen = true;
             }
