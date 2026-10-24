@@ -207,6 +207,25 @@ for (const file of ['src/consentbridge.js', 'dist/consentbridge.min.js']) {
       assert.equal(http.consentCookies()[0].secure, undefined);
     });
 
+    test('without document.currentScript it stops with an error', () => {
+      const page = createPage({ body: consentUi() }).exec(code, file, null).ready();
+      assert.deepEqual(page.logs.map((l) => l.level), ['error']);
+      assert.equal(page.window.dataLayer, undefined);
+    });
+
+    test('day attributes take a positive number of days, otherwise the default', () => {
+      const cases = [[undefined, null, 0], ['', null, 0], ['30', 30, 0], ['0.5', 0.5, 0], [' 7 ', 7, 0], ['0', null, 1], ['-5', null, 1], ['abc', null, 1], ['Infinity', null, 1]];
+      for (const [attribute, action, defaultDays] of [['data-cb-consent-max-age-days', 'accept-all', 365], ['data-cb-rejection-refresh-days', 'reject-all', 182]]) {
+        for (const [value, days, warnings] of cases) {
+          const page = load({ script: value === undefined ? {} : { [attribute]: value } });
+          page.action(action);
+          // The cookie lasts as long as the choice is valid.
+          const cookieDays = Math.round(Number(page.consentCookies()[0]['max-age']) / 86.4) / 1000;
+          assert.deepEqual([cookieDays, page.problems().length], [days ?? defaultDays, warnings], `${attribute}="${value}"`);
+        }
+      }
+    });
+
     test('data-cb-cookie-domain shares the choice across subdomains', () => {
       const script = { 'data-cb-cookie-domain': 'example.com' };
       const www = load({ script });
