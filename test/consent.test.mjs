@@ -266,6 +266,28 @@ for (const file of ['src/consentbridge.js', 'dist/consentbridge.min.js']) {
       page.action('close-modal');
       assert.equal(modal.style.display, 'none');
 
+      // Tab and Shift+Tab wrap around the modal's controls; in between, the browser moves focus.
+      opener.click();
+      const tab = (shiftKey) => {
+        let prevented = false;
+        page.document.dispatch('keydown', { key: 'Tab', shiftKey, preventDefault: () => { prevented = true; } });
+        return prevented;
+      };
+      const first = page.$('[data-cb-category="analytics"]');
+      const last = page.$('[data-cb-action="close-modal"]');
+      assert.equal(tab(false), false, 'Tab inside the modal is left to the browser');
+      last.focus();
+      assert.equal(tab(false), true);
+      assert.equal(page.document.activeElement, first);
+      assert.equal(tab(true), true);
+      assert.equal(page.document.activeElement, last);
+      opener.focus();
+      tab(false);
+      assert.equal(page.document.activeElement, first, 'focus outside the modal comes back in');
+      page.action('close-modal');
+      opener.focus();
+      assert.equal(tab(false), false, 'a closed modal leaves Tab alone');
+
       // A disabled "necessary" checkbox first in the modal can't take focus, so it's skipped.
       const modalWithNecessary = settingsModal();
       modalWithNecessary.insertBefore(h('input', { type: 'checkbox', checked: '', disabled: '' }), modalWithNecessary.children[0]);

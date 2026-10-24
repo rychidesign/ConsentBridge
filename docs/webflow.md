@@ -89,7 +89,7 @@ Custom code runs on the published site, not in the Designer. Publish to the stag
    Give the heading that ID in its element settings.
 6. Set the overlay to **Display: None**.
 
-When the modal opens, focus moves to its first control that isn't disabled, and Escape closes it.
+When the modal opens, focus moves to its first control that isn't disabled, Tab stays inside it, and Escape closes it.
 
 ## 4. Add the "Cookie settings" link
 
