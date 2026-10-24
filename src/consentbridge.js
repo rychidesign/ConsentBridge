@@ -7,45 +7,32 @@
 //   so www.example.com and blog.example.com read the same choice. On hosts outside that
 //   domain (staging, preview) the cookie stays host-only.
 //
-// Day values in data-cb-*-days attributes are parsed with parseFloat, so decimals work.
+// Day attributes (data-cb-*-days) take a positive number of days; decimals work. Missing or
+// empty means the default, anything else logs a warning and uses the default too.
 (function(window, document) {
     'use strict';
 
     const SCRIPT_TAG = document.currentScript;
+    if (!SCRIPT_TAG) {
+        console.error('[ConsentBridge] Script tag not found, so its data-cb-* configuration can\'t be read. Load ConsentBridge with a plain <script src> tag.');
+        return;
+    }
     const MS_IN_DAY = 1000 * 60 * 60 * 24;
-    const DEFAULT_REJECTION_DAYS = 182;
-    const DEFAULT_MAX_AGE_DAYS = 365;
 
-    // --- data-cb-consent-max-age-days ---
-    const MAX_AGE_ATTRIBUTE = SCRIPT_TAG ? SCRIPT_TAG.getAttribute('data-cb-consent-max-age-days') : '10';
-    let MAX_AGE_MS;
-
-    if (MAX_AGE_ATTRIBUTE === "") {
-        MAX_AGE_MS = Infinity;
-    } else {
-        // parseFloat accepts decimal values
-        const days = parseFloat(MAX_AGE_ATTRIBUTE || DEFAULT_MAX_AGE_DAYS);
-        MAX_AGE_MS = isNaN(days) ? (DEFAULT_MAX_AGE_DAYS * MS_IN_DAY) : (days * MS_IN_DAY);
+    function daysAttribute(name, defaultDays) {
+        const value = (SCRIPT_TAG.getAttribute(name) || '').trim();
+        const days = Number(value);
+        if (value === '') return defaultDays * MS_IN_DAY;
+        if (days > 0 && isFinite(days)) return days * MS_IN_DAY;
+        console.warn(`[ConsentBridge] ${name}="${value}" is not a positive number of days. Using ${defaultDays}.`);
+        return defaultDays * MS_IN_DAY;
     }
-
-    // --- data-cb-rejection-refresh-days ---
-    const REFRESH_REJECT_ATTRIBUTE = SCRIPT_TAG ? SCRIPT_TAG.getAttribute('data-cb-rejection-refresh-days') : '100';
-    let REFRESH_REJECT_DAYS;
-
-    if (REFRESH_REJECT_ATTRIBUTE === "") {
-        REFRESH_REJECT_DAYS = DEFAULT_REJECTION_DAYS;
-    } else {
-        // parseFloat accepts decimal values
-        const days = parseFloat(REFRESH_REJECT_ATTRIBUTE || DEFAULT_REJECTION_DAYS);
-        REFRESH_REJECT_DAYS = isNaN(days) ? DEFAULT_REJECTION_DAYS : days;
-    }
-    // ----------------------------------------------------------------------
 
     // --- data-cb-cookie-domain (consent shared across subdomains) ---
     // "example.com" and ".example.com" mean the same: the domain and all its subdomains.
     // Used only when the page actually runs on that domain; anywhere else the browser
     // would reject the cookie anyway.
-    const COOKIE_DOMAIN_ATTRIBUTE = SCRIPT_TAG ? (SCRIPT_TAG.getAttribute('data-cb-cookie-domain') || '') : '';
+    const COOKIE_DOMAIN_ATTRIBUTE = SCRIPT_TAG.getAttribute('data-cb-cookie-domain') || '';
     const COOKIE_DOMAIN_WANTED = COOKIE_DOMAIN_ATTRIBUTE.trim().toLowerCase().replace(/^\./, '');
     const HOSTNAME = window.location.hostname.toLowerCase();
     const COOKIE_DOMAIN = COOKIE_DOMAIN_WANTED &&
@@ -54,13 +41,12 @@
     // ----------------------------------------------------------------------
 
     const CONFIG = {
-        devMode: (SCRIPT_TAG ? SCRIPT_TAG.getAttribute('data-cb-dev-mode') : 'false') === 'true',
+        devMode: SCRIPT_TAG.getAttribute('data-cb-dev-mode') === 'true',
         cookieDomain: COOKIE_DOMAIN,
         cookieDomainWanted: COOKIE_DOMAIN_WANTED || null,
         cookieName: 'consentbridge',
-        // Time limits
-        consentMaxAgeMs: MAX_AGE_MS,
-        rejectionRefreshMs: REFRESH_REJECT_DAYS * MS_IN_DAY,
+        consentMaxAgeMs: daysAttribute('data-cb-consent-max-age-days', 365),
+        rejectionRefreshMs: daysAttribute('data-cb-rejection-refresh-days', 182),
         categoryMapping: {
             'analytics': ['analytics_storage'],
             'marketing': ['ad_storage', 'ad_user_data', 'ad_personalization'],
@@ -208,7 +194,6 @@
             this.elements.settingsModal = document.querySelector('[data-cb-modal="settings"]');
             this.elements.actionButtons = document.querySelectorAll('[data-cb-action]');
             this.elements.categoryCheckboxes = document.querySelectorAll('[data-cb-category]');
-            this.elements.privacyLink = document.querySelector('[data-cb-link="privacy-policy"]');
         }
 
         _bindEventListeners() {
@@ -366,10 +351,6 @@
         }
     }
 
-    if (!SCRIPT_TAG) {
-        console.error('[ConsentBridge] CRITICAL: Script tag not identified. Configuration may be missing.');
-        return;
-    }
     const consentManager = new ConsentBridge(CONFIG);
     consentManager.start();
     if (document.readyState === 'loading') {
