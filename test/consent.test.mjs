@@ -50,9 +50,10 @@ function jarWith(...cookies) {
 }
 
 // Runs the inline snippet, then the script. `ready` says when DOMContentLoaded fires:
-// 'after' the script (default), 'before' it, or never (false).
-function open(code, file, { snippet = true, ready = 'after', ...options } = {}) {
+// 'after' the script (default), 'before' it, or never (false). `setup` runs first.
+function open(code, file, { snippet = true, ready = 'after', setup = () => {}, ...options } = {}) {
   const page = createPage({ body: consentUi(), ...options });
+  setup(page);
   // Every cb:consent event, and whether window.ConsentBridge existed when it fired.
   const cbEvents = [];
   page.document.addEventListener('cb:consent', (event) => cbEvents.push({ detail: plain(event.detail), api: Boolean(page.window.ConsentBridge) }));
@@ -430,6 +431,37 @@ for (const file of ['src/consentbridge.js', 'dist/consentbridge.min.js']) {
       assert.equal(applies({ state: GRANTED, timestamp: Date.now() }), false, 'no schema version');
       assert.equal(applies({ ...record(GRANTED), v: 2 }), false, 'other schema version');
       assert.equal(applies('not json{'), false, 'not JSON');
+    });
+
+    test('Webflow Analyze and Optimize follow the analytics category', () => {
+      // Webflow's consent API, recording the calls it gets.
+      const webflow = () => {
+        const calls = [];
+        let choice = 'none';
+        const wf = {
+          ready: (callback) => callback(),
+          getUserTrackingChoice: () => choice,
+          allowUserTracking: () => { calls.push('allow'); choice = 'allow'; },
+          denyUserTracking: () => { calls.push('deny'); choice = 'deny'; },
+        };
+        return { calls, wf };
+      };
+      const site = webflow();
+      const page = load({ setup: (p) => { p.window.wf = site.wf; } });
+      assert.deepEqual(site.calls, ['deny'], 'no tracking before a choice');
+      page.action('open-settings');
+      page.$('[data-cb-category="marketing"]').checked = true;
+      page.action('save-settings');
+      assert.deepEqual(site.calls, ['deny'], 'marketing alone changes nothing');
+      page.action('accept-all');
+      assert.deepEqual(site.calls, ['deny', 'allow']);
+
+      // Webflow's script loading after ConsentBridge is picked up at DOM ready.
+      const late = webflow();
+      const next = load({ cookies: page.cookies, ready: false });
+      next.window.wf = late.wf;
+      next.ready();
+      assert.deepEqual(late.calls, ['allow']);
     });
 
     test('withdrawing a granted category reloads the page after saving', () => {
