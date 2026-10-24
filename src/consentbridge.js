@@ -239,35 +239,33 @@
             });
         }
 
-        _activateGrantedScripts() {
-            this.config.managedConsentParams.forEach(googleParam => {
-                if (this.consentState[googleParam] === 'granted') this._activateScriptsForGoogleParam(googleParam);
-            });
+        // A category counts as granted when all its Consent Mode signals are.
+        _hasConsent(category) {
+            const params = this.config.categoryMapping[category];
+            return Boolean(params) && params.every(param => this.consentState[param] === 'granted');
         }
 
-        _activateScriptsForGoogleParam(googleParamKey) {
-            const relevantUserAliases = [];
-            for (const alias in this.config.categoryMapping) {
-                if (this.config.categoryMapping[alias].includes(googleParamKey)) relevantUserAliases.push(alias);
-            }
-            relevantUserAliases.forEach(alias => {
-                const scriptsToActivate = document.querySelectorAll(
-                    `script[type="text/plain"][data-cb-consent-category="${alias}"]`
-                );
-                scriptsToActivate.forEach(originalScript => {
-                    if (originalScript.dataset.cbActivated === 'true') return;
-                    const newScript = document.createElement('script');
-                    Array.from(originalScript.attributes).forEach(attr => {
-                        if (attr.name !== 'type' && attr.name !== 'data-cb-consent-category' && attr.name !== 'data-cb-activated') {
-                            newScript.setAttribute(attr.name, attr.value);
-                        }
-                    });
-                    newScript.type = 'text/javascript';
-                    if (originalScript.src) {} else { newScript.textContent = originalScript.textContent; }
-                    originalScript.parentNode.insertBefore(newScript, originalScript.nextSibling);
-                    originalScript.dataset.cbActivated = 'true';
-                    this._log(`Activated script (user category: ${alias}):`, newScript.src || 'inline');
+        // Activates each blocked script once all categories it lists are granted.
+        // data-cb-consent-category takes a space-separated list.
+        _activateGrantedScripts() {
+            document.querySelectorAll('script[type="text/plain"][data-cb-consent-category]').forEach(originalScript => {
+                if (originalScript.dataset.cbActivated === 'true') return;
+                const categories = originalScript.getAttribute('data-cb-consent-category').trim().split(/\s+/);
+                if (!categories.every(category => this._hasConsent(category))) return;
+                const newScript = document.createElement('script');
+                Array.from(originalScript.attributes).forEach(attr => {
+                    if (attr.name !== 'type' && attr.name !== 'data-cb-consent-category' && attr.name !== 'data-cb-activated') {
+                        newScript.setAttribute(attr.name, attr.value);
+                    }
                 });
+                newScript.type = 'text/javascript';
+                // Scripts added from JavaScript run as async by default. Keep document order
+                // unless the original asked for async.
+                newScript.async = originalScript.hasAttribute('async');
+                if (!originalScript.src) newScript.textContent = originalScript.textContent;
+                originalScript.parentNode.insertBefore(newScript, originalScript.nextSibling);
+                originalScript.dataset.cbActivated = 'true';
+                this._log(`Activated script (${categories.join(', ')}):`, newScript.src || 'inline');
             });
         }
 

@@ -114,6 +114,21 @@ for (const file of ['src/consentbridge.js', 'dist/consentbridge.min.js']) {
       assert.equal(page.document.getElementsByTagName('script').length, 1 + 2 * CATEGORIES.length);
     });
 
+    test('activated scripts keep document order and can need several categories', () => {
+      const page = load({ body: [...consentUi(),
+        h('script', { type: 'text/plain', 'data-cb-consent-category': ' analytics  marketing ', src: 'https://example.com/both.js' }),
+        h('script', { type: 'text/plain', 'data-cb-consent-category': 'analytics', src: 'https://example.com/async.js', async: '' }),
+        h('script', { type: 'text/plain', 'data-cb-consent-category': 'unknown', src: 'https://example.com/unknown.js' }),
+      ] });
+      const copies = () => page.document.querySelectorAll('script').filter((s) => s.type === 'text/javascript').map((s) => [s.src.split('/').pop(), s.async]);
+      page.action('open-settings');
+      page.$('[data-cb-category="analytics"]').checked = true;
+      page.action('save-settings');
+      assert.deepEqual(copies(), [['analytics.js', false], ['async.js', true]]);
+      page.action('accept-all');
+      assert.deepEqual(copies(), [['analytics.js', false], ['marketing.js', false], ['preferences.js', false], ['both.js', false], ['async.js', true]]);
+    });
+
     test('reject all: nothing granted or activated, settings reopen unchecked', () => {
       const page = load();
       page.action('reject-all');
