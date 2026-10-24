@@ -7,6 +7,9 @@
 //   so www.example.com and blog.example.com read the same choice. On hosts outside that
 //   domain (staging, preview) the cookie stays host-only.
 //
+// data-cb-revision (any text) asks everyone again when it changes, e.g. after the privacy
+// policy changes or a tracker is added. A stored choice counts only for the same revision.
+//
 // Day attributes (data-cb-*-days) take a positive number of days; decimals work. Missing or
 // empty means the default, anything else logs a warning and uses the default too.
 (function(window, document) {
@@ -42,6 +45,7 @@
 
     const CONFIG = {
         devMode: SCRIPT_TAG.getAttribute('data-cb-dev-mode') === 'true',
+        revision: (SCRIPT_TAG.getAttribute('data-cb-revision') || '').trim(),
         cookieDomain: COOKIE_DOMAIN,
         cookieDomainWanted: COOKIE_DOMAIN_WANTED || null,
         cookieName: 'consentbridge',
@@ -140,6 +144,7 @@
 
         saveConsentToStorage(consentState) {
             const record = { v: 1, state: consentState, timestamp: Date.now() };
+            if (this.config.revision) record.revision = this.config.revision;
             this._writeCookie(record);
             this._log('Consent saved.', record);
         }
@@ -166,6 +171,11 @@
             if (!record || record.v !== 1 || !record.state || typeof record.state !== 'object'
                 || typeof record.timestamp !== 'number' || !(record.timestamp <= Date.now())) {
                 this._warn('Stored consent has an unknown format. Ignoring it.');
+                return null;
+            }
+            const revision = typeof record.revision === 'string' ? record.revision : '';
+            if (revision !== this.config.revision) {
+                this._log(`Stored consent is for revision "${revision}", this page has "${this.config.revision}". Asking again.`);
                 return null;
             }
             if (this._remainingMs(record) <= 0) {

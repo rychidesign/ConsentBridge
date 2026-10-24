@@ -432,6 +432,26 @@ for (const file of ['src/consentbridge.js', 'dist/consentbridge.min.js']) {
       assert.equal(applies('not json{'), false, 'not JSON');
     });
 
+    test('data-cb-revision asks again when it changes', () => {
+      const asked = (revision, cookies) => {
+        const page = load({ script: revision === undefined ? {} : { 'data-cb-revision': revision }, cookies });
+        return page.$('[data-cb-banner]').style.display === 'block';
+      };
+      const first = load({ script: { 'data-cb-revision': ' 2024-05 ' } });
+      first.action('accept-all');
+      assert.equal(first.stored().revision, '2024-05');
+      assert.equal(asked('2024-05', first.cookies), false);
+      assert.equal(asked('2025-01', first.cookies), true);
+      assert.equal(asked(undefined, first.cookies), true, 'revision removed from the page');
+
+      // Without the attribute nothing is stored, and a site that adds one asks again.
+      const plainSite = load();
+      plainSite.action('accept-all');
+      assert.equal('revision' in plainSite.stored(), false);
+      assert.equal(asked(undefined, plainSite.cookies), false);
+      assert.equal(asked('1', plainSite.cookies), true);
+    });
+
     test('a stored record is read strictly', () => {
       const update = (...cookies) => load({ cookies: jarWith(...cookies) }).consent()[1]?.[2] ?? null;
       // Only the exact value 'granted' counts, and only for known signals.
