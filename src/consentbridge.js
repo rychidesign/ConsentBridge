@@ -13,6 +13,9 @@
 // When a visitor withdraws a category they had granted, the page reloads after saving, so
 // scripts that already ran stop. data-cb-reload-on-withdrawal="false" turns that off.
 //
+// Webflow Analyze and Optimize follow the analytics category through Webflow's consent API
+// (wf.allowUserTracking / wf.denyUserTracking), when the site uses them.
+//
 // Day attributes (data-cb-*-days) take a positive number of days; decimals work. Missing or
 // empty means the default, anything else logs a warning and uses the default too.
 (function(window, document) {
@@ -93,7 +96,7 @@
             };
             const storedConsent = this.loadConsentFromStorage();
             if (storedConsent) this._applyConsent(storedConsent, 'storage');
-            else this._dispatch('default', []);
+            else this._notify('default', []);
         }
 
         _allSignals(value) {
@@ -111,10 +114,25 @@
             return { decided: Object.keys(this.consentState).length > 0, categories, signals };
         }
 
-        _dispatch(source, changed) {
+        // Tells everyone else about the state: the cb:consent event and Webflow.
+        _notify(source, changed) {
             const detail = { ...this._state(), source, changed };
             this._log('cb:consent', detail);
             document.dispatchEvent(new CustomEvent('cb:consent', { detail }));
+            this._syncWebflow();
+        }
+
+        // Webflow's consent API exists only with Analyze or Optimize. Until the visitor
+        // decides, tracking stays off, like every other analytics signal.
+        _syncWebflow() {
+            const wf = window.wf;
+            if (!wf || typeof wf.ready !== 'function') return;
+            const allow = this._hasConsent('analytics');
+            wf.ready(() => {
+                const current = typeof wf.getUserTrackingChoice === 'function' ? wf.getUserTrackingChoice() : null;
+                if (allow && current !== 'allow') wf.allowUserTracking();
+                if (!allow && current !== 'deny') wf.denyUserTracking();
+            });
         }
 
         // The one place a choice takes effect. source: 'storage' (stored choice), 'ui' or 'api'
@@ -135,7 +153,7 @@
             });
             this._activateGrantedScripts();
             const after = this._state().categories;
-            this._dispatch(source, Object.keys(after).filter(category => after[category] !== before[category]));
+            this._notify(source, Object.keys(after).filter(category => after[category] !== before[category]));
         }
 
         // A choice made on this page: applied, saved, and the banner and settings closed.
@@ -380,6 +398,8 @@
         // Runs once the DOM is ready: wires up the UI and activates scripts parsed since start().
         init() {
             this._bindEventListeners();
+            // Webflow's script may load after this one.
+            this._syncWebflow();
             this._activateGrantedScripts();
             if (Object.keys(this.consentState).length > 0) this._hideElement(this._banner());
             else this._showElement(this._banner());
