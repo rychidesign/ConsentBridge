@@ -31,6 +31,20 @@ const isArguments = (entry) => Object.prototype.toString.call(entry) === '[objec
 const SNIPPET = readFileSync('src/snippet.html', 'utf8');
 const SNIPPET_CODE = /^<script>\n([\s\S]*)<\/script>\n$/.exec(SNIPPET)[1];
 
+const DAY = 24 * 60 * 60 * 1000;
+const record = (state, ageDays = 1) => ({ v: 1, state, timestamp: Date.now() - ageDays * DAY, allDenied: Object.values(state).every((s) => s === 'denied') });
+
+// A cookie jar holding consent cookies set on www.example.com. Each entry is a record (or a raw
+// string) plus optional extra cookie attributes.
+function jarWith(...cookies) {
+  const jar = new Map();
+  const { document } = createPage({ cookies: jar });
+  for (const [value, attributes = ''] of cookies) {
+    document.cookie = `consentbridge=${encodeURIComponent(typeof value === 'string' ? value : JSON.stringify(value))}; path=/${attributes}`;
+  }
+  return jar;
+}
+
 // Runs the inline snippet, then the script. `ready` says when DOMContentLoaded fires:
 // 'after' the script (default), 'before' it, or never (false).
 function open(code, file, { snippet = true, ready = 'after', ...options } = {}) {
@@ -46,7 +60,12 @@ function open(code, file, { snippet = true, ready = 'after', ...options } = {}) 
     consent: () => plain(Array.from(page.window.dataLayer).filter(isArguments).map((args) => Array.from(args))).filter((args) => args[0] === 'consent'),
     events: (name) => plain(page.window.dataLayer.filter((entry) => !isArguments(entry) && entry.event === name)),
     activated: () => CATEGORIES.filter((c) => $(`script[data-cb-consent-category="${c}"]`).getAttribute('data-cb-activated') === 'true'),
-    stored: () => JSON.parse(page.storage.get('consentbridge')),
+    consentCookies: () => [...page.cookies.values()].filter((c) => c.name === 'consentbridge'),
+    stored: () => {
+      const [cookie, ...more] = page.document.visibleCookies().filter((c) => c.name === 'consentbridge');
+      assert.equal(more.length, 0, 'more than one consent cookie');
+      return JSON.parse(decodeURIComponent(cookie.value));
+    },
     errors: () => page.logs.filter((l) => l.level === 'error'),
   });
 }
@@ -64,7 +83,7 @@ for (const file of ['src/consentbridge.js', 'dist/consentbridge.min.js']) {
       const page = load();
       assert.deepEqual(page.consent(), [['consent', 'default', { ...DENIED, wait_for_update: 500 }]]);
       assert.equal(page.$('[data-cb-banner]').style.display, 'block');
-      assert.equal(page.storage.size, 0);
+      assert.equal(page.cookies.size, 0);
       assert.deepEqual(page.activated(), []);
       assert.deepEqual(page.errors(), []);
     });
@@ -75,6 +94,7 @@ for (const file of ['src/consentbridge.js', 'dist/consentbridge.min.js']) {
       assert.deepEqual(page.consent().at(-1), ['consent', 'update', GRANTED]);
       assert.deepEqual(page.events('consent_state_updated'), [{ event: 'consent_state_updated', consent_source: 'ui', updated_consent_state: GRANTED }]);
       assert.deepEqual(page.stored().state, GRANTED);
+      assert.equal(page.stored().v, 1);
       assert.deepEqual(page.activated(), CATEGORIES);
       assert.equal(page.$('[data-cb-banner]').style.display, 'none');
 
@@ -120,11 +140,11 @@ for (const file of ['src/consentbridge.js', 'dist/consentbridge.min.js']) {
       first.action('open-settings');
       first.$('[data-cb-category="marketing"]').checked = true;
       first.action('save-settings');
-      const storage = Object.fromEntries(first.storage);
+      const { cookies } = first;
       const marketing = { ...DENIED, ad_storage: 'granted', ad_user_data: 'granted', ad_personalization: 'granted' };
 
       for (const ready of ['after', 'before']) {
-        const page = load({ storage, ready });
+        const page = load({ cookies, ready });
         assert.deepEqual(page.consent(), [['consent', 'default', { ...DENIED, wait_for_update: 500 }], ['consent', 'update', marketing]], ready);
         assert.deepEqual(page.events('consent_state_updated'), [{ event: 'consent_state_updated', consent_source: 'storage', updated_consent_state: marketing }], ready);
         assert.deepEqual(page.activated(), ['marketing'], ready);
@@ -133,7 +153,7 @@ for (const file of ['src/consentbridge.js', 'dist/consentbridge.min.js']) {
       }
 
       // The choice applies as soon as the script runs; only the banner waits for the DOM.
-      const early = load({ storage, ready: false });
+      const early = load({ cookies, ready: false });
       assert.deepEqual(early.consent().at(-1), ['consent', 'update', marketing]);
       assert.equal(early.events('consent_state_updated').length, 1);
       assert.equal(early.$('[data-cb-banner]').style.display, undefined);
@@ -148,12 +168,77 @@ for (const file of ['src/consentbridge.js', 'dist/consentbridge.min.js']) {
       assert.deepEqual(page.consent(), [['consent', 'update', GRANTED]]);
     });
 
-    test('blocked localStorage: banner shown and a choice still applies', () => {
-      const page = load({ blockStorage: true });
+    test('blocked cookies: banner shown and a choice still applies', () => {
+      const page = load({ blockCookies: true });
       assert.equal(page.$('[data-cb-banner]').style.display, 'block');
       page.action('accept-all');
       assert.deepEqual(page.consent().at(-1), ['consent', 'update', GRANTED]);
       assert.deepEqual(page.activated(), CATEGORIES);
+    });
+
+    test('the cookie is host-only by default and expires with the choice', () => {
+      const days = (cookie) => Number(cookie['max-age']) / 86400;
+      const page = load();
+      page.action('accept-all');
+      const [cookie, ...more] = page.consentCookies();
+      assert.equal(more.length, 0);
+      assert.deepEqual([cookie.domain, cookie.host, cookie.path, cookie.samesite, cookie.secure], [undefined, 'www.example.com', '/', 'Lax', '']);
+      assert.ok(Math.abs(days(cookie) - 365) < 0.001, `${days(cookie)} days`);
+
+      // Everything denied: the cookie lasts until the banner is due again.
+      const rejected = load();
+      rejected.action('reject-all');
+      assert.ok(Math.abs(days(rejected.consentCookies()[0]) - 182) < 0.001);
+
+      const http = load({ protocol: 'http:' });
+      http.action('accept-all');
+      assert.equal(http.consentCookies()[0].secure, undefined);
+    });
+
+    test('data-cb-cookie-domain shares the choice across subdomains', () => {
+      const script = { 'data-cb-cookie-domain': 'example.com' };
+      const www = load({ script });
+      www.action('accept-all');
+      assert.deepEqual(www.consentCookies().map((c) => c.domain), ['example.com']);
+
+      const blog = load({ script, hostname: 'blog.example.com', cookies: www.cookies });
+      assert.deepEqual(blog.consent().at(-1), ['consent', 'update', GRANTED]);
+      assert.equal(blog.$('[data-cb-banner]').style.display, 'none');
+
+      // Outside the domain (e.g. a staging host) the cookie stays host-only.
+      const staging = load({ script, hostname: 'site.webflow.io', cookies: www.cookies });
+      assert.equal(staging.$('[data-cb-banner]').style.display, 'block');
+      staging.action('reject-all');
+      assert.deepEqual(staging.consentCookies().map((c) => c.domain ?? c.host), ['example.com', 'site.webflow.io']);
+    });
+
+    test('with data-cb-cookie-domain, a leftover host-only cookie is removed', () => {
+      const script = { 'data-cb-cookie-domain': 'example.com' };
+      // Only the host-only cookie: its choice applies and moves to the shared cookie.
+      const moved = load({ script, cookies: jarWith([record(GRANTED)]) });
+      assert.deepEqual(moved.consent().at(-1), ['consent', 'update', GRANTED]);
+      assert.deepEqual(moved.consentCookies().map((c) => c.domain), ['example.com']);
+
+      // Both: the shared cookie applies and the host-only one goes.
+      const both = load({ script, cookies: jarWith([record(GRANTED)], [record(DENIED), '; domain=example.com']) });
+      assert.deepEqual(both.consent().at(-1), ['consent', 'update', DENIED]);
+      assert.deepEqual(both.consentCookies().map((c) => c.domain), ['example.com']);
+    });
+
+    test('a stored choice applies only in the known format and while valid', () => {
+      const applies = (value) => {
+        const page = load({ cookies: jarWith([value]) });
+        const applied = page.consent().length === 2;
+        assert.equal(page.$('[data-cb-banner]').style.display, applied ? 'none' : 'block');
+        return applied;
+      };
+      assert.equal(applies(record(GRANTED, 364)), true, 'within data-cb-consent-max-age-days');
+      assert.equal(applies(record(DENIED, 181)), true, 'within data-cb-rejection-refresh-days');
+      assert.equal(applies(record(GRANTED, 366)), false, 'expired');
+      assert.equal(applies(record(DENIED, 183)), false, 'rejection due again');
+      assert.equal(applies({ state: GRANTED, timestamp: Date.now() }), false, 'no schema version');
+      assert.equal(applies({ ...record(GRANTED), v: 2 }), false, 'other schema version');
+      assert.equal(applies('not json{'), false, 'not JSON');
     });
   });
 }

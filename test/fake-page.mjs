@@ -64,15 +64,19 @@ function matcher(selector) {
     && attrs.every(([, name, value]) => el.hasAttribute(name) && (value === undefined || el.getAttribute(name) === value));
 }
 
+const domainMatches = (host, domain) => host === domain || host.endsWith('.' + domain);
+
 class FakeDocument {
-  constructor(body) {
+  constructor(body, { hostname, cookies, blockCookies }) {
+    this.hostname = hostname;
+    this.cookies = cookies;
+    this.blockCookies = blockCookies;
     this.readyState = 'loading';
     this.currentScript = null;
     this.head = new FakeElement('head');
     this.body = new FakeElement('body', {}, body);
     this.documentElement = new FakeElement('html', {}, [this.head, this.body]);
     this.listeners = [];
-    this.cookies = new Map();
   }
 
   createElement(tagName) { return new FakeElement(tagName); }
@@ -89,9 +93,15 @@ class FakeDocument {
   addEventListener(type, listener) { this.listeners.push({ type, listener }); }
   dispatch(type) { this.listeners.filter((l) => l.type === type).forEach((l) => l.listener({ type })); }
 
-  // Cookies are keyed by name, domain and path, like in a browser. max-age <= 0 deletes.
-  get cookie() { return [...this.cookies.values()].map((c) => `${c.name}=${c.value}`).join('; '); }
+  // Like a browser: a cookie is either host-only (no domain attribute) or set for a domain
+  // that covers this host, and is keyed by name, domain or host, and path. max-age <= 0 deletes.
+  visibleCookies() {
+    if (this.blockCookies) throw new Error('SecurityError: cookies are blocked');
+    return [...this.cookies.values()].filter((c) => (c.domain ? domainMatches(this.hostname, c.domain) : c.host === this.hostname));
+  }
+  get cookie() { return this.visibleCookies().map((c) => `${c.name}=${c.value}`).join('; '); }
   set cookie(text) {
+    if (this.blockCookies) throw new Error('SecurityError: cookies are blocked');
     const [pair, ...attrs] = text.split(';').map((s) => s.trim());
     const eq = pair.indexOf('=');
     const cookie = { name: pair.slice(0, eq), value: pair.slice(eq + 1) };
@@ -99,7 +109,13 @@ class FakeDocument {
       const [key, value = ''] = attr.split('=');
       cookie[key.toLowerCase()] = value;
     }
-    const key = `${cookie.name};${cookie.domain ?? ''};${cookie.path ?? ''}`;
+    if (cookie.domain) {
+      cookie.domain = cookie.domain.replace(/^\./, '').toLowerCase();
+      if (!domainMatches(this.hostname, cookie.domain)) return; // the browser ignores it
+    } else {
+      cookie.host = this.hostname;
+    }
+    const key = `${cookie.name};${cookie.domain ?? 'host:' + cookie.host};${cookie.path ?? ''}`;
     if (cookie['max-age'] !== undefined && Number(cookie['max-age']) <= 0) this.cookies.delete(key);
     else this.cookies.set(key, cookie);
   }
@@ -108,29 +124,21 @@ class FakeDocument {
 export const h = (tagName, attributes, ...children) => new FakeElement(tagName, attributes, children);
 
 // Builds a page with the ConsentBridge script tag in <head> and `body` elements in <body>.
-// `storage` seeds localStorage; `blockStorage` makes every localStorage access throw.
-export function createPage({ script = {}, body = [], storage = {}, blockStorage = false, hostname = 'www.example.com', protocol = 'https:' } = {}) {
-  const document = new FakeDocument(body);
+// `cookies` is the browser's cookie jar: pass another page's jar to simulate a later visit
+// or another host. `blockCookies` makes every cookie access throw.
+export function createPage({ script = {}, body = [], cookies = new Map(), blockCookies = false, hostname = 'www.example.com', protocol = 'https:' } = {}) {
+  const document = new FakeDocument(body, { hostname, cookies, blockCookies });
   const scriptTag = document.head.appendChild(h('script', { src: 'consentbridge.min.js', ...script }));
-  const items = new Map(Object.entries(storage));
-  const localStorage = {
-    getItem: (key) => (items.has(key) ? items.get(key) : null),
-    setItem: (key, value) => { items.set(key, String(value)); },
-    removeItem: (key) => { items.delete(key); },
-  };
   const logs = [];
   const console = Object.fromEntries(['log', 'info', 'warn', 'error', 'debug']
     .map((level) => [level, (...args) => logs.push({ level, args })]));
 
   const window = { document, console, location: { hostname, protocol } };
-  Object.defineProperty(window, 'localStorage', {
-    get() { if (blockStorage) throw new Error('SecurityError: localStorage is blocked'); return localStorage; },
-  });
   window.window = window;
   vm.createContext(window);
 
   return {
-    window, document, storage: items, logs,
+    window, document, cookies, logs,
     // Runs code as a script element. `document.currentScript` is the ConsentBridge tag unless
     // `currentScript` says otherwise (null for an inline script).
     exec(code, filename, currentScript = scriptTag) {

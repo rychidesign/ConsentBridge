@@ -2,11 +2,10 @@
 // Configuration is read from data-cb-* attributes on this script tag. The Consent Mode
 // defaults come from the inline snippet (src/snippet.html), which sites put first in <head>.
 //
-// Optional data-cb-cookie-domain="example.com" shares the consent choice across subdomains.
-//   The choice is stored in localStorage and in a cookie set for that domain and all its
-//   subdomains, so www.example.com and blog.example.com read the same choice.
-//   The cookie takes precedence over localStorage. On hosts outside that domain (staging,
-//   preview) no cookie is written. Without the attribute only localStorage is used.
+// The choice is stored in one first-party cookie, consentbridge, host-only by default.
+// Optional data-cb-cookie-domain="example.com" sets it for that domain and all its subdomains,
+//   so www.example.com and blog.example.com read the same choice. On hosts outside that
+//   domain (staging, preview) the cookie stays host-only.
 //
 // Day values in data-cb-*-days attributes are parsed with parseFloat, so decimals work.
 (function(window, document) {
@@ -56,10 +55,9 @@
 
     const CONFIG = {
         devMode: (SCRIPT_TAG ? SCRIPT_TAG.getAttribute('data-cb-dev-mode') : 'false') === 'true',
-        localStorageKey: 'consentbridge',
         cookieDomain: COOKIE_DOMAIN,
         cookieDomainWanted: COOKIE_DOMAIN_WANTED || null,
-        cookieName: 'cb_consent',
+        cookieName: 'consentbridge',
         // Time limits
         consentMaxAgeMs: MAX_AGE_MS,
         rejectionRefreshMs: REFRESH_REJECT_DAYS * MS_IN_DAY,
@@ -84,7 +82,7 @@
             this.consentState = {};
             this._log('ConsentBridge initialized with config:', this.config);
             if (this.config.cookieDomainWanted && !this.config.cookieDomain) {
-                this._log(`Shared consent cookie off: ${window.location.hostname} is not on ${this.config.cookieDomainWanted}. Using localStorage only.`);
+                this._log(`Shared consent cookie off: ${window.location.hostname} is not on ${this.config.cookieDomainWanted}. Using a host-only cookie.`);
             }
         }
 
@@ -119,99 +117,85 @@
         }
 
         saveConsentToStorage(consentState) {
-            try {
-                const now = Date.now();
-                // Check whether the user denied all optional categories
-                const allDenied = Object.values(consentState).every(status => status === 'denied');
-
-                const storageData = {
-                    state: consentState,
-                    timestamp: now,
-                    allDenied: allDenied
-                };
-
-                this._writeCookie(storageData);
-                localStorage.setItem(this.config.localStorageKey, JSON.stringify(storageData));
-                this._log('Consent saved with timestamp and allDenied status.', storageData);
-            } catch (e) { this._log('Error saving consent: ' + e.message, 'error'); }
+            const record = {
+                v: 1,
+                state: consentState,
+                timestamp: Date.now(),
+                // Everything denied: the banner comes back after data-cb-rejection-refresh-days
+                allDenied: Object.values(consentState).every(status => status === 'denied')
+            };
+            this._writeCookie(record);
+            this._log('Consent saved.', record);
         }
 
         loadConsentFromStorage() {
-            try {
-                // The shared cookie wins: another subdomain may have updated it since.
-                const fromCookie = this._readCookie();
-                const stored = fromCookie || localStorage.getItem(this.config.localStorageKey);
-                if (stored) {
-                    const storageData = JSON.parse(stored);
-
-                    if (!storageData || !storageData.state || !storageData.timestamp) {
-                        this._log('Invalid or old stored consent format. Treating as no consent.', 'warn');
-                        return null;
-                    }
-
-                    const now = Date.now();
-                    const timeElapsed = now - storageData.timestamp;
-
-                    // Rule 1: expiry (max age)
-                    if (timeElapsed > this.config.consentMaxAgeMs) {
-                        const maxAgeDays = this.config.consentMaxAgeMs === Infinity ? 'forever' : `${this.config.consentMaxAgeMs / MS_IN_DAY} days`;
-                        this._log(`Stored consent expired (older than ${maxAgeDays}). Treating as no consent.`, 'warn');
-                        localStorage.removeItem(this.config.localStorageKey);
-                        this._deleteCookie();
-                        return null;
-                    }
-
-                    // Rule 2: show the banner again (refresh days, only when everything was denied)
-                    if (storageData.allDenied === true && timeElapsed > this.config.rejectionRefreshMs) {
-                        this._log(`All denied consent expired after ${this.config.rejectionRefreshMs / MS_IN_DAY} days. Treating as no consent to re-show banner.`, 'warn');
-                        return null;
-                    }
-
-                    // Consent is valid
-                    this._log('Stored consent loaded and valid.', { timeElapsed: timeElapsed, allDenied: storageData.allDenied });
-                    // Write again: refreshes the cookie (Safari caps script-set cookies at 7 days), copies
-                    // a choice stored only in localStorage into the cookie and syncs localStorage with it.
-                    this._writeCookie(storageData);
-                    if (fromCookie) {
-                        try { localStorage.setItem(this.config.localStorageKey, fromCookie); } catch (e) { /* backup only */ }
-                    }
-                    return storageData.state;
-
-                }
-            } catch (e) {
-                this._log('Error loading consent: ' + e.message + '. Removing stored data.', 'error');
-                try { localStorage.removeItem(this.config.localStorageKey); } catch (e2) { /* unavailable */ }
-                this._deleteCookie();
+            const value = this._readCookie();
+            if (!value) return null;
+            let record = null;
+            try { record = JSON.parse(value); } catch (e) { /* invalid, handled below */ }
+            if (!record || record.v !== 1 || !record.state || !record.timestamp) {
+                this._log('Stored consent has an unknown format. Treating as no consent.', 'warn');
+                return null;
             }
-            return null;
+            if (this._remainingMs(record) <= 0) {
+                this._log('Stored consent expired. Treating as no consent.', 'warn');
+                return null;
+            }
+            this._log('Stored consent loaded and valid.', record);
+            // Write again: Safari keeps cookies set from JavaScript for 7 days at most.
+            this._writeCookie(record);
+            return record.state;
         }
 
-        // --- Consent shared across subdomains via cookie ---
+        // A choice is valid for data-cb-consent-max-age-days, or for the shorter
+        // data-cb-rejection-refresh-days when everything was denied.
+        _remainingMs(record) {
+            const validMs = record.allDenied
+                ? Math.min(this.config.consentMaxAgeMs, this.config.rejectionRefreshMs)
+                : this.config.consentMaxAgeMs;
+            return validMs - (Date.now() - record.timestamp);
+        }
+
+        // With a shared cookie, a host-only one left from before is removed. If it was the
+        // only copy, its value is still returned here and written back as the shared cookie.
         _readCookie() {
-            if (!this.config.cookieDomain) return null;
-            const prefix = this.config.cookieName + '=';
-            const found = document.cookie.split('; ').find(part => part.indexOf(prefix) === 0);
-            if (!found) return null;
-            try { return decodeURIComponent(found.substring(prefix.length)); }
-            catch (e) { return null; }
+            let values = this._cookieValues();
+            if (this.config.cookieDomain && values.length > 0) {
+                this._deleteHostOnlyCookie();
+                const shared = this._cookieValues();
+                if (shared.length > 0) values = shared;
+            }
+            return values[0] || null;
         }
 
-        _writeCookie(storageData) {
-            if (!this.config.cookieDomain) return;
-            // Browsers cap cookie lifetime at 400 days; consent validity is decided by the
-            // timestamp inside the record, not by the cookie expiry.
-            const maxAgeDays = Math.min(this.config.consentMaxAgeMs / MS_IN_DAY, 400);
-            document.cookie = this.config.cookieName + '=' + encodeURIComponent(JSON.stringify(storageData))
-                + '; domain=' + this.config.cookieDomain
-                + '; path=/'
-                + '; max-age=' + Math.floor(maxAgeDays * 86400)
-                + '; SameSite=Lax'
-                + (window.location.protocol === 'https:' ? '; Secure' : '');
+        _cookieValues() {
+            try {
+                const prefix = this.config.cookieName + '=';
+                return document.cookie.split('; ')
+                    .filter(part => part.indexOf(prefix) === 0)
+                    .map(part => decodeURIComponent(part.substring(prefix.length)));
+            } catch (e) {
+                this._log('Error reading the consent cookie: ' + e.message, 'error');
+                return [];
+            }
         }
 
-        _deleteCookie() {
-            if (!this.config.cookieDomain) return;
-            document.cookie = this.config.cookieName + '=; domain=' + this.config.cookieDomain + '; path=/; max-age=0';
+        _writeCookie(record) {
+            // The cookie expires with the choice. Browsers cap cookie lifetime at 400 days.
+            const maxAgeMs = Math.min(this._remainingMs(record), 400 * MS_IN_DAY);
+            try {
+                document.cookie = this.config.cookieName + '=' + encodeURIComponent(JSON.stringify(record))
+                    + (this.config.cookieDomain ? '; domain=' + this.config.cookieDomain : '')
+                    + '; path=/'
+                    + '; max-age=' + Math.floor(maxAgeMs / 1000)
+                    + '; SameSite=Lax'
+                    + (window.location.protocol === 'https:' ? '; Secure' : '');
+            } catch (e) { this._log('Error saving the consent cookie: ' + e.message, 'error'); }
+        }
+
+        _deleteHostOnlyCookie() {
+            try { document.cookie = this.config.cookieName + '=; path=/; max-age=0'; }
+            catch (e) { this._log('Error removing the host-only consent cookie: ' + e.message, 'error'); }
         }
 
         _queryElements() {
