@@ -38,7 +38,7 @@ Day attributes take a positive number; decimals work (`0.5` is twelve hours). A 
 
 ## Element attributes
 
-ConsentBridge looks elements up when it needs them, so they can be anywhere on the page, inside components, or added later.
+Elements can be anywhere on the page, including inside components. Action buttons, the modal and its checkboxes can also be added later. The banner, blocked scripts, iframes and placeholders must be in the page when it finishes loading (`DOMContentLoaded`).
 
 | Attribute | On | What it does |
 |---|---|---|
@@ -60,9 +60,9 @@ A native `<dialog>` opens and closes through its own API: the modal with `showMo
 Any other element is shown by setting `style.display`. For the modal, ConsentBridge also:
 
 - adds `role="dialog"` and `aria-modal="true"` unless the element has its own,
-- moves focus to the first input, button or link inside it,
+- moves focus to the first `input`, `select`, `textarea`, `button`, `a[href]` or `[tabindex]` element inside it,
 - closes it on Escape,
-- returns focus to the element that opened it.
+- returns focus to the element that opened it, if that's still visible. After a choice, the banner is hidden, so focus goes back to the page.
 
 It doesn't trap focus inside the modal. If you need that, use a `<dialog>`. Either way, give the modal an accessible name with `aria-labelledby` pointing at its heading, or `aria-label`.
 
@@ -74,22 +74,26 @@ When the modal opens, each checkbox shows the current choice. A Webflow custom c
 <script type="text/plain" data-cb-consent-category="analytics" src="https://example.com/analytics.js"></script>
 ```
 
-Once every listed category is granted, ConsentBridge inserts a copy of the script right after it, with the same attributes except `type` and `data-cb-consent-category`. The original stays in the page with `data-cb-activated="true"`. Inline scripts work the same way. Scripts run in page order. A copy is `async` only if the original has the `async` attribute.
+Once every listed category is granted, ConsentBridge inserts a copy of the script right after it, with the same attributes except `type` and `data-cb-consent-category`. The original stays in the page with `data-cb-activated="true"`. Inline scripts work the same way.
 
-Each script runs at most once per page load. If consent is withdrawn, the page reloads, which stops it.
+External scripts run in page order. A copy is `async` only if the original has the `async` attribute. Inline code runs as soon as it's inserted, without waiting for external scripts before it to load. Don't make blocked inline code depend on a blocked external script; most vendor snippets load their own script and are fine.
+
+Each script runs at most once per page load. If consent is withdrawn, the page reloads, which stops it, unless [reloading is off](#withdrawing-consent).
 
 ### Blocked iframes
 
 ```html
-<iframe data-cb-src="https://player.vimeo.com/video/VIDEO_ID" data-cb-consent-category="marketing"
-  width="640" height="360" title="Video" allow="fullscreen"></iframe>
-<div data-cb-placeholder="marketing">
-  <p>This video is hosted by Vimeo.</p>
-  <button data-cb-action="accept-category">Allow marketing cookies</button>
+<div style="position: relative; aspect-ratio: 16 / 9">
+  <iframe data-cb-src="https://player.vimeo.com/video/VIDEO_ID" data-cb-consent-category="marketing"
+    style="width: 100%; height: 100%; border: 0" title="Video" allow="fullscreen"></iframe>
+  <div data-cb-placeholder="marketing" style="position: absolute; inset: 0">
+    <p>This video is hosted by Vimeo.</p>
+    <button data-cb-action="accept-category">Allow marketing cookies</button>
+  </div>
 </div>
 ```
 
-The iframe gets its `src` once all its categories are granted. If consent is withdrawn and the page doesn't reload, the `src` goes back to `about:blank` and the placeholder shows again.
+The iframe gets its `src` once all its categories are granted. Until then it's an empty frame, so the placeholder in the example covers it. If consent is withdrawn and the page doesn't reload, the `src` goes back to `about:blank` and the placeholder shows again.
 
 The placeholder and the iframe are linked only by their categories, not by position. Every placeholder for `marketing` hides when marketing is granted.
 
@@ -99,13 +103,13 @@ Put `data-cb-action` on a button or link. ConsentBridge handles the click and pr
 
 | Value | What it does |
 |---|---|
-| `accept-all` | Grants every category, saves the choice and hides the banner. |
-| `reject-all` | Denies every category, saves the choice and hides the banner. |
+| `accept-all` | Grants every category, saves the choice, and hides the banner and the modal. |
+| `reject-all` | Denies every category, saves the choice, and hides the banner and the modal. |
 | `open-settings` | Opens the settings modal. Use it on the banner. |
 | `reopen-settings` | Opens the settings modal. Use it for the "Cookie settings" link that's on every page. |
 | `save-settings` | Grants the checked categories, denies the rest, saves, and closes the modal and the banner. |
 | `close-modal` | Closes the modal without saving. |
-| `accept-category` | Inside a `data-cb-placeholder`: grants that placeholder's categories, keeps the other categories as they were, saves, and hides the banner. |
+| `accept-category` | Inside a `data-cb-placeholder`: grants that placeholder's categories, keeps the other categories as they were, saves, and hides the banner and the modal. |
 
 ## Categories and Consent Mode signals
 
@@ -117,7 +121,7 @@ Put `data-cb-action` on a button or link. ConsentBridge handles the click and pr
 
 A category is granted when all of its signals are `granted`. The inline snippet sets every signal to `denied` by default. ConsentBridge sends an update with all of them whenever a stored or new choice applies.
 
-There are three categories, with fixed names. Strictly necessary cookies don't need consent and have no category. If you show them in the modal, use a checkbox without `data-cb-category`, checked and disabled.
+There are three categories, with fixed names. Strictly necessary cookies don't need consent and have no category. If you show them in the modal, use a checkbox without `data-cb-category`, checked and disabled, and don't make it the modal's first control: focus can't move to a disabled element.
 
 ## JavaScript API
 
@@ -151,7 +155,7 @@ Before the visitor decides, every category is `false` and every signal `denied`.
 
 ### Waiting for ConsentBridge
 
-The script loads `async`, so your code may run before or after it. This helper calls back once with the current state, whenever ConsentBridge is ready, and again after every change:
+The script loads `async`, so your code may run before or after it. This helper calls back once with the current state, whenever ConsentBridge is ready, and again after every choice:
 
 ```html
 <script>
@@ -167,6 +171,8 @@ The script loads `async`, so your code may run before or after it. This helper c
   });
 </script>
 ```
+
+The first call gets `getState()` or the first event's `detail`, depending on which came first, so don't rely on `source` and `changed` in it.
 
 ## The `cb:consent` event
 
@@ -218,7 +224,8 @@ The choice is stored in one first-party cookie named `consentbridge`:
 
 - `path=/`, `SameSite=Lax`, and `Secure` on HTTPS.
 - Host-only by default. With `data-cb-cookie-domain`, set for that domain.
-- It expires when the choice does: `data-cb-consent-max-age-days` after the choice, or `data-cb-rejection-refresh-days` if nothing was granted. Browsers cap cookies at 400 days.
+- It expires when the choice does: `data-cb-consent-max-age-days` after the choice, or, if nothing was granted, the shorter of that and `data-cb-rejection-refresh-days`. Browsers cap cookies at 400 days.
+- ConsentBridge rewrites it on every page load, because Safari keeps cookies set by scripts for 7 days. A Safari visitor who doesn't come back within 7 days is asked again.
 
 The value is URL-encoded JSON with a format version, the signals, the time of the choice and the revision. Read the choice through the API rather than the cookie.
 
@@ -250,6 +257,7 @@ The banner shows again when:
 
 - the choice is older than `data-cb-consent-max-age-days` (default 365),
 - nothing was granted and the choice is older than `data-cb-rejection-refresh-days` (default 182),
+- in Safari, the visitor hasn't been on the site for 7 days (see [Storage](#storage)),
 - `data-cb-revision` changed since the choice. Change it when the privacy policy changes or you add a tracker that needs consent.
 
 ## Webflow Analyze and Optimize

@@ -4,8 +4,8 @@ Cookie consent for Webflow, with Google Consent Mode v2 built in. You design the
 
 - **Consent Mode v2.** Sets the Consent Mode defaults and updates them on every choice, so GA4, Google Ads and GTM work without extra setup.
 - **Your design.** No injected styles or markup. Any element can be the banner, the settings modal or a checkbox, including a native `<dialog>`.
-- **Blocks what GTM doesn't run.** Pasted scripts (`type="text/plain"`) and iframes like YouTube, Vimeo or maps (`data-cb-src`) wait for consent, with a placeholder in their place.
-- **Small and dependency-free.** About 10 KB minified. One cookie of its own, no network requests, no backend.
+- **Blocks what GTM doesn't run.** Pasted scripts (`type="text/plain"`) and iframes like YouTube, Vimeo or maps (`data-cb-src`) wait for consent. Embeds can show a placeholder until then.
+- **Small and dependency-free.** About 12 KB minified, 4 KB gzipped. One cookie of its own, no network requests, no backend.
 - **For developers.** A `window.ConsentBridge` API and a `cb:consent` event for anything else you want to connect.
 
 > ConsentBridge hasn't had its first release yet. The `@1` URLs below work from version 1.0.0.
@@ -14,7 +14,7 @@ Cookie consent for Webflow, with Google Consent Mode v2 built in. You design the
 
 Paste this into **Site settings → Custom code → Head code** in Webflow (or the `<head>` of any site), in this order:
 
-1. **The inline snippet, first.** It sets every Consent Mode signal to `denied` before any Google tag loads.
+1. **The inline snippet, first.** It sets the Consent Mode signals to `denied` before any Google tag loads.
 
    ```html
    <script>
@@ -98,18 +98,20 @@ Running tags through GTM is the recommended way. A script you paste into the pag
 </script>
 ```
 
-Scripts run in page order once every category they list is granted. A list like `data-cb-consent-category="analytics marketing"` needs both.
+A script runs once every category it lists is granted. A list like `data-cb-consent-category="analytics marketing"` needs both. External scripts run in page order; see the [reference](docs/reference.md#blocked-scripts) for inline code.
 
 ## Embeds
 
-Use `data-cb-src` instead of `src`, and put a placeholder next to the iframe. The placeholder is visible until consent; a button in it can grant just its category.
+Use `data-cb-src` instead of `src`, and lay a placeholder over the iframe. The placeholder is visible until consent; a button in it can grant just its category.
 
 ```html
-<iframe data-cb-src="https://www.youtube-nocookie.com/embed/VIDEO_ID" data-cb-consent-category="marketing"
-  width="560" height="315" title="Video" allowfullscreen></iframe>
-<div data-cb-placeholder="marketing">
-  <p>This video is hosted by YouTube, which sets marketing cookies.</p>
-  <button data-cb-action="accept-category">Allow marketing cookies and load the video</button>
+<div style="position: relative; aspect-ratio: 16 / 9">
+  <iframe data-cb-src="https://www.youtube-nocookie.com/embed/VIDEO_ID" data-cb-consent-category="marketing"
+    style="width: 100%; height: 100%; border: 0" title="Video" allowfullscreen></iframe>
+  <div data-cb-placeholder="marketing" style="position: absolute; inset: 0">
+    <p>This video is hosted by YouTube, which sets marketing cookies.</p>
+    <button data-cb-action="accept-category">Allow marketing cookies and load the video</button>
+  </div>
 </div>
 ```
 

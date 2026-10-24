@@ -87,7 +87,7 @@ Custom code runs on the published site, not in the Designer. Publish to the stag
    Give the heading that ID in its element settings.
 6. Set the overlay to **Display: None**.
 
-When the modal opens, focus moves into it, Escape closes it, and focus returns to the button that opened it.
+When the modal opens, focus moves to its first control, and Escape closes it. If you add a disabled "necessary" checkbox, don't put it first: focus can't move to a disabled element.
 
 ## 4. Add the "Cookie settings" link
 
@@ -105,7 +105,7 @@ Webflow's **YouTube**, **Video** and **Map** elements load the provider's conten
 
 ```html
 <iframe data-cb-src="https://www.youtube-nocookie.com/embed/VIDEO_ID" data-cb-consent-category="marketing"
-  width="100%" height="100%" title="Video title" frameborder="0" allowfullscreen></iframe>
+  style="width: 100%; height: 100%; border: 0" title="Video title" allowfullscreen></iframe>
 ```
 
 Next to the Embed, build a placeholder in the Designer, for example a box with a thumbnail, a short text and a button:
@@ -117,7 +117,7 @@ Next to the Embed, build a placeholder in the Designer, for example a box with a
 
 Leave the placeholder visible. It hides once marketing is granted, and the iframe loads. The button grants only marketing and keeps the visitor's other choices.
 
-To show the placeholder in the iframe's place, put both in a wrapper with `position: relative` and give the placeholder `position: absolute` and full size.
+Until consent, the iframe is an empty frame. To show the placeholder in its place, put the Embed and the placeholder in a wrapper Div with `position: relative` and a size, for example a width of 100% and an aspect ratio of 16:9. Give the Embed full width and height, and the placeholder `position: absolute` with all sides at 0.
 
 The same works for maps (`https://www.google.com/maps/embed?pb=…`), Vimeo, Spotify, Calendly and other iframes. Choose the category by what the provider does with the data. Video and social embeds are usually `marketing`.
 

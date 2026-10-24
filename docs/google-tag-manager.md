@@ -4,7 +4,7 @@ ConsentBridge doesn't load any tags. GTM does, and ConsentBridge tells GTM and e
 
 ## How it fits together
 
-1. **The inline snippet** runs first and sets every signal to `denied`.
+1. **The inline snippet** runs first and sets the Consent Mode signals to `denied`.
 2. **GTM** loads. Google tags see the defaults and respect them.
 3. **ConsentBridge** loads. For a returning visitor, it applies the stored choice right away. Otherwise it shows the banner and applies the choice when the visitor makes it.
 
@@ -53,7 +53,7 @@ Do the same for analytics tags with `analytics_storage`, and for preference tags
 | `marketing` | `ad_storage` |
 | `preferences` | `functionality_storage` |
 
-When a visitor withdraws consent, ConsentBridge reloads the page, so tags that already fired stop. On the new page, the trigger doesn't fire.
+When a visitor withdraws consent, ConsentBridge reloads the page, so tags that already fired stop. On the new page, the trigger doesn't fire. If you turn reloading off with `data-cb-reload-on-withdrawal="false"`, tags that already fired keep running until the next page load.
 
 ### Other GTM triggers
 
@@ -63,7 +63,7 @@ Tags that need consent but fire on other triggers (a click, a form submission, a
 
 1. Turn on **Enable consent overview** in **Admin → Container Settings**. The tags list then shows the consent settings of every tag.
 2. Open **Preview** and load the site in the window it opens.
-3. Select the first event in the summary and open the **Consent** tab. **On-page Default** should show every signal as `denied`.
+3. Select the first event in the summary and open the **Consent** tab. **On-page Default** should show the signals from the snippet as `denied`.
 4. Accept or reject on the banner. On the `consent_state_updated` event, **On-page Update** shows the choice.
 5. Check that tags that need consent didn't fire before the choice, and fired after it if it was granted.
 
