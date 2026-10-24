@@ -46,10 +46,19 @@ class FakeElement {
     return siblings[siblings.indexOf(this) + 1] ?? null;
   }
 
+  closest(selector) {
+    const matches = matcher(selector);
+    for (let el = this; el instanceof FakeElement; el = el.parentNode) if (matches(el)) return el;
+    return null;
+  }
+
   addEventListener(type, listener) { this.listeners.push({ type, listener }); }
+  // The click bubbles up to the document, like a real one.
   click() {
     const event = { type: 'click', target: this, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
-    this.listeners.filter((l) => l.type === 'click').forEach((l) => l.listener(event));
+    for (let node = this; node; node = node.parentNode) {
+      node.listeners.filter((l) => l.type === 'click').forEach((l) => l.listener(event));
+    }
     return event;
   }
 }
@@ -76,6 +85,7 @@ class FakeDocument {
     this.head = new FakeElement('head');
     this.body = new FakeElement('body', {}, body);
     this.documentElement = new FakeElement('html', {}, [this.head, this.body]);
+    this.documentElement.parentNode = this;
     this.listeners = [];
   }
 

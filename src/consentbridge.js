@@ -64,7 +64,6 @@
     class ConsentBridge {
         constructor(config) {
             this.config = config;
-            this.elements = {};
             this.consentState = {};
             this._log('ConsentBridge initialized with config:', this.config);
             if (this.config.cookieDomainWanted && !this.config.cookieDomain) {
@@ -189,31 +188,29 @@
             catch (e) { this._warn('Could not remove the host-only consent cookie: ' + e.message); }
         }
 
-        _queryElements() {
-            this.elements.banner = document.querySelector('[data-cb-banner]');
-            this.elements.settingsModal = document.querySelector('[data-cb-modal="settings"]');
-            this.elements.actionButtons = document.querySelectorAll('[data-cb-action]');
-            this.elements.categoryCheckboxes = document.querySelectorAll('[data-cb-category]');
-        }
+        // Looked up when needed, so elements added after startup work too.
+        _banner() { return document.querySelector('[data-cb-banner]'); }
+        _settingsModal() { return document.querySelector('[data-cb-modal="settings"]'); }
+        _checkboxes() { return document.querySelectorAll('[data-cb-category]'); }
 
+        // One listener for every [data-cb-action] on the page, present or added later.
         _bindEventListeners() {
-            if (!this.elements.actionButtons) return;
-            this.elements.actionButtons.forEach(button => {
-                const action = button.getAttribute('data-cb-action');
-                button.addEventListener('click', (event) => {
-                    event.preventDefault();
-                    switch (action) {
-                        case 'accept-all': this._handleAcceptAll(); break;
-                        case 'reject-all': this._handleRejectAll(); break;
-                        case 'open-settings': this._handleOpenSettings(); break;
-                        case 'reopen-settings': this._handleOpenSettings(); break;
-                        case 'save-settings': this._handleSaveSettings(); break;
-                        case 'close-modal':
-                            const targetModal = button.getAttribute('data-cb-target-modal');
-                            if (targetModal) this._handleCloseModal(targetModal);
-                            break;
+            document.addEventListener('click', (event) => {
+                const button = event.target && event.target.closest ? event.target.closest('[data-cb-action]') : null;
+                if (!button) return;
+                event.preventDefault();
+                switch (button.getAttribute('data-cb-action')) {
+                    case 'accept-all': this._handleAcceptAll(); break;
+                    case 'reject-all': this._handleRejectAll(); break;
+                    case 'open-settings': this._handleOpenSettings(); break;
+                    case 'reopen-settings': this._handleOpenSettings(); break;
+                    case 'save-settings': this._handleSaveSettings(); break;
+                    case 'close-modal': {
+                        const targetModal = button.getAttribute('data-cb-target-modal');
+                        if (targetModal) this._handleCloseModal(targetModal);
+                        break;
                     }
-                });
+                }
             });
         }
 
@@ -229,8 +226,7 @@
         }
 
         _updateCheckboxesUI(googleConsentState) {
-            if (!this.elements.categoryCheckboxes) return;
-            this.elements.categoryCheckboxes.forEach(checkbox => {
+            this._checkboxes().forEach(checkbox => {
                 const userCategoryAlias = checkbox.getAttribute('data-cb-category');
                 if (userCategoryAlias && this.config.categoryMapping.hasOwnProperty(userCategoryAlias)) {
                     const googleParamsForAlias = this.config.categoryMapping[userCategoryAlias];
@@ -279,31 +275,29 @@
             const consentState = {};
             this.config.managedConsentParams.forEach(param => consentState[param] = 'granted');
             this.updateConsentAfterUInteraction(consentState);
-            this._hideElement(this.elements.banner);
-            this._hideElement(this.elements.settingsModal);
+            this._hideElement(this._banner());
+            this._hideElement(this._settingsModal());
         }
 
         _handleRejectAll() {
             const consentState = {};
             this.config.managedConsentParams.forEach(param => consentState[param] = 'denied');
             this.updateConsentAfterUInteraction(consentState);
-            this._hideElement(this.elements.banner);
-            this._hideElement(this.elements.settingsModal);
+            this._hideElement(this._banner());
+            this._hideElement(this._settingsModal());
         }
 
         _handleOpenSettings() {
             this._updateCheckboxesUI(this.consentState);
-            this._showElement(this.elements.settingsModal);
+            this._showElement(this._settingsModal());
         }
 
         _handleSaveSettings() {
             const userChoices = {};
-            if(this.elements.categoryCheckboxes){
-                this.elements.categoryCheckboxes.forEach(checkbox => {
-                    const userCategoryAlias = checkbox.getAttribute('data-cb-category');
-                    if (userCategoryAlias) userChoices[userCategoryAlias] = checkbox.checked;
-                });
-            }
+            this._checkboxes().forEach(checkbox => {
+                const userCategoryAlias = checkbox.getAttribute('data-cb-category');
+                if (userCategoryAlias) userChoices[userCategoryAlias] = checkbox.checked;
+            });
             const newGoogleConsentState = {};
             this.config.managedConsentParams.forEach(param => newGoogleConsentState[param] = 'denied');
             for (const alias in userChoices) {
@@ -316,8 +310,8 @@
                 }
             }
             this.updateConsentAfterUInteraction(newGoogleConsentState);
-            this._hideElement(this.elements.settingsModal);
-            this._hideElement(this.elements.banner);
+            this._hideElement(this._settingsModal());
+            this._hideElement(this._banner());
         }
 
         _handleCloseModal(modalName) {
@@ -327,12 +321,10 @@
 
         // Runs once the DOM is ready: wires up the UI and activates scripts parsed since start().
         init() {
-            this._queryElements();
-            if (this.elements.banner) this._bindEventListeners();
-            else this._log('No [data-cb-banner] on this page.');
+            this._bindEventListeners();
             this._activateGrantedScripts();
-            if (Object.keys(this.consentState).length > 0) this._hideElement(this.elements.banner);
-            else this._showElement(this.elements.banner);
+            if (Object.keys(this.consentState).length > 0) this._hideElement(this._banner());
+            else this._showElement(this._banner());
             this._log('ConsentBridge setup complete.');
         }
 
