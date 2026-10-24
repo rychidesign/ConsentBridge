@@ -432,6 +432,33 @@ for (const file of ['src/consentbridge.js', 'dist/consentbridge.min.js']) {
       assert.equal(applies('not json{'), false, 'not JSON');
     });
 
+    test('withdrawing a granted category reloads the page after saving', () => {
+      const page = load();
+      page.action('open-settings');
+      page.$('[data-cb-category="analytics"]').checked = true;
+      page.action('save-settings');
+      page.action('accept-all');
+      assert.equal(page.reloads.length, 0, 'granting more never reloads');
+
+      page.action('open-settings');
+      page.$('[data-cb-category="marketing"]').checked = false;
+      page.action('save-settings');
+      assert.equal(page.reloads.length, 1);
+      assert.match(decodeURIComponent(page.reloads[0]), /"ad_storage":"denied"/, 'saved before the reload');
+
+      // The API reloads too, and a returning visitor's first change counts.
+      const next = load({ cookies: page.cookies });
+      next.window.ConsentBridge.rejectAll();
+      assert.equal(next.reloads.length, 1);
+      next.window.ConsentBridge.rejectAll();
+      assert.equal(next.reloads.length, 1, 'nothing left to withdraw');
+
+      const off = load({ script: { 'data-cb-reload-on-withdrawal': 'false' } });
+      off.action('accept-all');
+      off.action('reject-all');
+      assert.equal(off.reloads.length, 0);
+    });
+
     test('data-cb-revision asks again when it changes', () => {
       const asked = (revision, cookies) => {
         const page = load({ script: revision === undefined ? {} : { 'data-cb-revision': revision }, cookies });

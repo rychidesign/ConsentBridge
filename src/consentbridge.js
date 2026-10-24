@@ -10,6 +10,9 @@
 // data-cb-revision (any text) asks everyone again when it changes, e.g. after the privacy
 // policy changes or a tracker is added. A stored choice counts only for the same revision.
 //
+// When a visitor withdraws a category they had granted, the page reloads after saving, so
+// scripts that already ran stop. data-cb-reload-on-withdrawal="false" turns that off.
+//
 // Day attributes (data-cb-*-days) take a positive number of days; decimals work. Missing or
 // empty means the default, anything else logs a warning and uses the default too.
 (function(window, document) {
@@ -46,6 +49,7 @@
     const CONFIG = {
         devMode: SCRIPT_TAG.getAttribute('data-cb-dev-mode') === 'true',
         revision: (SCRIPT_TAG.getAttribute('data-cb-revision') || '').trim(),
+        reloadOnWithdrawal: SCRIPT_TAG.getAttribute('data-cb-reload-on-withdrawal') !== 'false',
         cookieDomain: COOKIE_DOMAIN,
         cookieDomainWanted: COOKIE_DOMAIN_WANTED || null,
         cookieName: 'consentbridge',
@@ -135,11 +139,19 @@
         }
 
         // A choice made on this page: applied, saved, and the banner and settings closed.
+        // Withdrawing a granted category reloads the page: scripts that already ran (activated
+        // ones, and tags GTM fired) keep running otherwise.
         _choose(consentState, source) {
+            const before = this._state().categories;
             this._applyConsent(consentState, source);
             this.saveConsentToStorage(this.consentState);
             this._hideElement(this._banner());
             this._closeSettings();
+            const withdrawn = Object.keys(before).filter(category => before[category] && !this._hasConsent(category));
+            if (withdrawn.length > 0 && this.config.reloadOnWithdrawal) {
+                this._log('Consent withdrawn, reloading:', withdrawn);
+                window.location.reload();
+            }
         }
 
         saveConsentToStorage(consentState) {

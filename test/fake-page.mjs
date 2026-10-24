@@ -193,12 +193,15 @@ export function createPage({ script = {}, body = [], cookies = new Map(), blockC
   class CustomEvent {
     constructor(type, init = {}) { this.type = type; this.detail = init.detail ?? null; }
   }
-  const window = { document, console, CustomEvent, location: { hostname, protocol } };
+  // reload() records the cookies at that moment instead of reloading.
+  const reloads = [];
+  const location = { hostname, protocol, reload: () => reloads.push(document.cookie) };
+  const window = { document, console, CustomEvent, location };
   window.window = window;
   vm.createContext(window);
 
   return {
-    window, document, cookies, logs,
+    window, document, cookies, logs, reloads,
     // Runs code as a script element. `document.currentScript` is the ConsentBridge tag unless
     // `currentScript` says otherwise (null for an inline script).
     exec(code, filename, currentScript = scriptTag) {
