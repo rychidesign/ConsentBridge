@@ -1,6 +1,6 @@
 {
   "name": "consentbridge",
-  "version": "1.0.0-beta.1",
+  "version": "1.0.0-beta.2",
   "description": "Cookie consent for Webflow with native Google Consent Mode v2, configured via data attributes.",
   "license": "MIT",
   "repository": {
