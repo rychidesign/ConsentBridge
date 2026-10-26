@@ -29,6 +29,26 @@ Which one you need is a legal decision for the site, not a technical one. To run
 
 The event fires when a stored choice applies and when the visitor makes a choice. The consent check lets the tag through only if the signal is `granted`.
 
+## What GA4 and Google Ads measure
+
+With advanced Consent Mode, this is what Google gets for each kind of visitor.
+
+**Visitors who accept** are measured in full. If they accept on the page they landed on, Google tags keep measuring on that page without a reload: the client ID of the first hit becomes the `_ga` cookie and the session continues, so they count as one new user. If they view other pages first, those pages aren't linked to them, unless [`url_passthrough`](recipes.md#google-ads-ad-click-data-without-cookies) carries the IDs between pages.
+
+**Returning visitors** are recognized by their `_ga` cookie. ConsentBridge applies the stored choice as soon as it runs, and the snippet's `wait_for_update: 500` makes Google tags wait up to 500 ms for it, so the first hit already has consent. If ConsentBridge loads later, for example on a slow mobile connection, the first hit goes out with the defaults and a temporary ID, and GA4 may count an extra new user or session. You can raise `wait_for_update` in the snippet, for example to `1000`. The cost: for visitors who haven't chosen yet, Google tags wait the full time before their first hit.
+
+**Visitors who reject or don't choose** get no Google cookies. Google tags send cookieless pings with a new random ID on every page load, so GA4 can't count them as users or tell new from returning. They appear in reports only through [behavioral modeling](https://support.google.com/analytics/answer/11161109), which needs the **Blended** reporting identity (**Admin → Data display → Reporting identity**) and enough traffic: at least 1,000 events a day with `analytics_storage` denied for 7 days, and at least 1,000 daily users with it granted on 7 of the last 28 days. Below that, reports show only the visitors who accepted. Google Ads [models conversions](https://support.google.com/google-ads/answer/10548233) separately, with its own thresholds.
+
+**Safari** keeps cookies set by scripts for 7 days. A Safari visitor who comes back after more than a week counts as a new user and sees the banner again. No consent tool can change that.
+
+**Events and conversions** are sent in every state, each with the consent state at the time. Without consent, they arrive as cookieless pings, which GA4 reports only once behavioral modeling is active.
+
+**Enhanced conversions and user-provided data** (a hashed email address or phone number) are sent only when `ad_user_data` is granted, so only for visitors who accept `marketing`. They need their own setup: turn on enhanced conversions for the conversion action in Google Ads, and user-provided data collection in GA4 under **Admin → Data collection and modification → Data collection**. Then provide the data on the page, with `gtag('set', 'user_data', …)` or GTM's user-provided data variable.
+
+**Remarketing:** visitors join audiences used for ads only if they granted `ad_personalization`, which is part of `marketing`.
+
+To see whether the ads signals arrive, open **Admin → Data collection and modification → Consent settings** in GA4. For each data stream with visitors from the EEA, it shows whether GA4 receives `ad_user_data` and `ad_personalization`.
+
 ## Non-Google tags
 
 Meta Pixel, LinkedIn, TikTok, Hotjar and most other tags don't read Consent Mode, so GTM has to hold them back until consent. Set this up once:
