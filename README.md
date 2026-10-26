@@ -120,7 +120,7 @@ Use `data-cb-src` instead of `src`, and lay a placeholder over the iframe. The p
 ## Documentation
 
 - [Webflow guide](docs/webflow.md): building the banner, the settings modal, the footer link and embeds in the Designer.
-- [Google Tag Manager and Consent Mode](docs/google-tag-manager.md): advanced and basic Consent Mode, non-Google tags in GTM, checking the setup.
+- [Google Tag Manager and Consent Mode](docs/google-tag-manager.md): advanced and basic Consent Mode, non-Google tags in GTM, what GA4 and Google Ads measure, checking the setup.
 - [Recipes](docs/recipes.md): Meta Pixel, Microsoft Clarity and UET, embeds, region defaults, Global Privacy Control, a consent log and more.
 - [Reference](docs/reference.md): every attribute, the JavaScript API, events and storage.
 
