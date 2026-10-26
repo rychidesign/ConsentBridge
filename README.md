@@ -100,7 +100,7 @@ Running tags through GTM is the recommended way. A script you paste into the pag
 </script>
 ```
 
-A script runs once every category it lists is granted. A list like `data-cb-consent-category="analytics marketing"` needs both. External scripts run in page order; see the [reference](docs/reference.md#blocked-scripts) for inline code.
+A script runs once every category it lists is granted. A list like `data-cb-consent-category="analytics marketing"` needs both. Blocked scripts run in page order, so inline code can use a blocked library above it.
 
 ## Embeds
 

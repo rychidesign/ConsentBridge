@@ -427,8 +427,27 @@
                 // Scripts added from JavaScript run as async by default. Keep document order
                 // unless the original asked for async.
                 newScript.async = originalScript.hasAttribute('async');
-                if (!originalScript.src) newScript.textContent = originalScript.textContent;
-                originalScript.parentNode.insertBefore(newScript, originalScript.nextSibling);
+                const insert = () => originalScript.parentNode.insertBefore(newScript, originalScript.nextSibling);
+                if (originalScript.src) {
+                    if (!newScript.async) {
+                        this._loadingScript = newScript;
+                        const done = () => { if (this._loadingScript === newScript) this._loadingScript = null; };
+                        newScript.addEventListener('load', done);
+                        newScript.addEventListener('error', done);
+                    }
+                    insert();
+                } else {
+                    newScript.textContent = originalScript.textContent;
+                    // Inline code runs as soon as it's inserted, so it waits until the external
+                    // scripts before it have run. They run in order, so waiting for the last is enough.
+                    const loading = this._loadingScript;
+                    if (loading) {
+                        loading.addEventListener('load', insert);
+                        loading.addEventListener('error', insert);
+                    } else {
+                        insert();
+                    }
+                }
                 originalScript.dataset.cbActivated = 'true';
                 this._log(`Activated script (${categories.join(', ')}):`, newScript.src || 'inline');
             });
