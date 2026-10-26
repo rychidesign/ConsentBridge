@@ -160,12 +160,15 @@ Every placeholder for a category hides once it's granted, so one button grants m
 
 ## Google Ads: ad click data without cookies
 
-When `ad_storage` is denied, Google tags can still carry ad click information in page URLs, and you can remove ad click identifiers from what they send. Add these lines to the inline snippet, after the `gtag('consent', 'default', …)` call:
+Google has two optional settings for visitors who haven't consented. Add the ones you need to the inline snippet, after the `gtag('consent', 'default', …)` call:
 
 ```js
-gtag('set', 'url_passthrough', true);    // pass ad click information in URLs between pages
-gtag('set', 'ads_data_redaction', true); // remove ad click identifiers while ad_storage is denied
+gtag('set', 'ads_data_redaction', true); // redact ad click identifiers in Google Ads requests while ad_storage is denied
+gtag('set', 'url_passthrough', true);    // carry ad click, client and session IDs in link URLs while consent is denied
 ```
+
+- **`ads_data_redaction`:** while `ad_storage` is denied, Google Ads and Floodlight tags redact ad click identifiers in their requests. It doesn't cover Google Analytics: GA4 requests still contain the full page URL, including a `gclid` in it.
+- **`url_passthrough`:** while `ad_storage` or `analytics_storage` is denied, Google tags add parameters to the links to other pages of the site instead of setting cookies. They carry the ad click information (`gclid`) and, with GA4, a `_gl` parameter with the client and session ID, so Google can connect the visitor's pages before they consent. Whether that's acceptable without consent is a legal question for the site. The parameters also show up in page URLs, so check that forms, filters and other URL-based features still work.
 
 Docs: [Set up consent mode on websites](https://developers.google.com/tag-platform/security/guides/consent)
 
