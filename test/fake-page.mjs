@@ -84,6 +84,8 @@ class FakeElement {
   }
 
   addEventListener(type, listener) { this.listeners.push({ type, listener }); }
+  // Fires an event on this element only, e.g. a script's load or error.
+  dispatch(type) { this.listeners.filter((l) => l.type === type).forEach((l) => l.listener({ type, target: this })); }
   // The click bubbles up to the document, like a real one.
   click() {
     const event = { type: 'click', target: this, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };

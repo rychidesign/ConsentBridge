@@ -77,7 +77,7 @@ When the modal opens, each checkbox shows the current choice. A Webflow custom c
 
 Once every listed category is granted, ConsentBridge inserts a copy of the script right after it, with the same attributes, except that `type` becomes `text/javascript` and `data-cb-consent-category` is dropped. The original stays in the page with `data-cb-activated="true"`. Inline scripts work the same way.
 
-External scripts run in page order. A copy is `async` only if the original has the `async` attribute. Inline code runs as soon as it's inserted, without waiting for external scripts before it to load. Don't make blocked inline code depend on a blocked external script; most vendor snippets load their own script and are fine.
+Blocked scripts run in page order. Inline code waits until the blocked external scripts before it have loaded, or failed to load, so a library and the code that sets it up can be two blocked scripts. A copy is `async` only if the original has the `async` attribute; nothing waits for an `async` script.
 
 Each script runs at most once per page load. If consent is withdrawn, the page reloads, which stops it, unless [reloading is off](#withdrawing-consent).
 

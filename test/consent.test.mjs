@@ -209,6 +209,37 @@ for (const file of ['src/consentbridge.js', 'dist/consentbridge.min.js']) {
       assert.deepEqual(copies(), [['analytics.js', false], ['marketing.js', false], ['preferences.js', false], ['both.js', false], ['async.js', true]]);
     });
 
+    test('inline scripts wait for the external scripts before them', () => {
+      const blocked = (category, attributes = {}, code = '') =>
+        Object.assign(h('script', { type: 'text/plain', 'data-cb-consent-category': category, ...attributes }), { textContent: code });
+      const page = load({ body: [...consentUi().slice(0, 3),
+        blocked('analytics', {}, 'first()'),
+        blocked('analytics', { src: 'https://example.com/lib.js' }),
+        blocked('analytics', {}, 'lib.init()'),
+        blocked('analytics', { src: 'https://example.com/async.js', async: '' }),
+        blocked('analytics', {}, 'afterAsync()'),
+        blocked('marketing', { src: 'https://example.com/ads.js' }),
+        blocked('marketing', {}, 'ads.init()'),
+      ] });
+      const copies = () => page.document.querySelectorAll('script').filter((s) => s.type === 'text/javascript')
+        .map((s) => s.src.split('/').pop() || s.textContent);
+      const copy = (file) => page.document.querySelectorAll('script').find((s) => s.type === 'text/javascript' && s.src.endsWith(file));
+
+      page.action('open-settings');
+      page.$('[data-cb-category="analytics"]').checked = true;
+      page.action('save-settings');
+      // Nothing external before it: runs right away. The others wait for lib.js, not for async.js.
+      assert.deepEqual(copies(), ['first()', 'lib.js', 'async.js']);
+      copy('lib.js').dispatch('load');
+      assert.deepEqual(copies(), ['first()', 'lib.js', 'lib.init()', 'async.js', 'afterAsync()']);
+
+      page.action('accept-all');
+      assert.deepEqual(copies(), ['first()', 'lib.js', 'lib.init()', 'async.js', 'afterAsync()', 'ads.js']);
+      // A script that fails to load doesn't hold back the code after it.
+      copy('ads.js').dispatch('error');
+      assert.deepEqual(copies(), ['first()', 'lib.js', 'lib.init()', 'async.js', 'afterAsync()', 'ads.js', 'ads.init()']);
+    });
+
     test('reject all: nothing granted or activated, settings reopen unchecked', () => {
       const page = load();
       page.action('reject-all');
